@@ -1,6 +1,8 @@
 import os
 import json
 from datetime import datetime
+import smtplib
+from email.message import EmailMessage
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -32,7 +34,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="OptiFlow Enterprise SaaS V13",
+    page_title="OptiFlow Enterprise SaaS V14",
     page_icon="📊",
     layout="wide"
 )
@@ -1181,10 +1183,13 @@ with st.sidebar:
             "Excel Upload AI",
             "Benchmark Center",
             "Clients",
+            "My Reports",
+            "Report Delivery",
             "Report Center",
             "Billing",
             "Admin Panel",
-            "Admin Analytics"
+            "Admin Analytics",
+            "Email Logs"
         ]
     )
 
@@ -1770,6 +1775,318 @@ def render_admin_dashboard(user_email):
 
 
 
+
+
+# ============================================================
+# V14 REPORT DELIVERY CENTER + GMAIL SMTP
+# ============================================================
+
+def get_gmail_settings():
+    sender = st.secrets.get("GMAIL_SENDER", "")
+    password = st.secrets.get("GMAIL_APP_PASSWORD", "")
+    return sender, password
+
+
+def send_email_with_attachments(to_email, subject, body, attachment_paths=None):
+    sender, password = get_gmail_settings()
+
+    if not sender or not password:
+        return False, "Gmail SMTP bilgileri eksik. Secrets içine GMAIL_SENDER ve GMAIL_APP_PASSWORD eklenmeli."
+
+    if not to_email:
+        return False, "Alıcı e-posta adresi bulunamadı."
+
+    attachment_paths = attachment_paths or []
+
+    try:
+        msg = EmailMessage()
+        msg["From"] = sender
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.set_content(body)
+
+        for path in attachment_paths:
+            try:
+                if path and os.path.exists(path):
+                    with open(path, "rb") as file:
+                        data = file.read()
+
+                    file_name = os.path.basename(path)
+
+                    if file_name.lower().endswith(".pdf"):
+                        maintype, subtype = "application", "pdf"
+                    elif file_name.lower().endswith(".xlsx"):
+                        maintype, subtype = "application", "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    elif file_name.lower().endswith(".pptx"):
+                        maintype, subtype = "application", "vnd.openxmlformats-officedocument.presentationml.presentation"
+                    else:
+                        maintype, subtype = "application", "octet-stream"
+
+                    msg.add_attachment(
+                        data,
+                        maintype=maintype,
+                        subtype=subtype,
+                        filename=file_name
+                    )
+            except Exception:
+                pass
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
+            smtp.login(sender, password)
+            smtp.send_message(msg)
+
+        return True, "E-posta başarıyla gönderildi."
+
+    except Exception as exc:
+        return False, str(exc)
+
+
+def create_email_delivery_log_table_if_needed():
+    supabase = get_supabase_client()
+    if not supabase:
+        return
+
+    # Not: Tablo SQL ile oluşturulmalı. Bu fonksiyon sadece uygulama tarafında sessiz geçer.
+    return
+
+
+def save_email_log(user_email, to_email, subject, status, message, company_name=None):
+    supabase = get_supabase_client()
+
+    if not supabase:
+        return None
+
+    try:
+        payload = {
+            "user_email": user_email,
+            "to_email": to_email,
+            "subject": subject,
+            "status": status,
+            "message": str(message)[:900],
+            "company_name": company_name
+        }
+
+        result = supabase.table("email_logs").insert(payload).execute()
+
+        if result.data:
+            return result.data[0].get("id")
+
+    except Exception:
+        # email_logs tablosu yoksa uygulama bozulmasın.
+        return None
+
+    return None
+
+
+def load_user_reports(user_email):
+    supabase = get_supabase_client()
+
+    if not supabase or not user_email:
+        return []
+
+    try:
+        result = (
+            supabase.table("reports")
+            .select("*")
+            .eq("user_email", user_email)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return result.data or []
+    except Exception:
+        return []
+
+
+def load_email_logs(user_email=None, admin=False):
+    supabase = get_supabase_client()
+
+    if not supabase:
+        return []
+
+    try:
+        query = supabase.table("email_logs").select("*").order("created_at", desc=True)
+        if not admin and user_email:
+            query = query.eq("user_email", user_email)
+        result = query.execute()
+        return result.data or []
+    except Exception:
+        return []
+
+
+def render_my_reports_center(user_email):
+    st.markdown("## My Reports")
+    st.caption("Kullanıcıya ait oluşturulan rapor geçmişi")
+
+    reports = load_user_reports(user_email)
+
+    if not reports:
+        st.info("Henüz rapor geçmişi bulunmuyor. Report Center veya Excel Upload AI üzerinden rapor oluştur.")
+        return
+
+    df = pd.DataFrame(reports)
+    visible_cols = [c for c in ["report_type", "file_name", "file_path", "created_at"] if c in df.columns]
+    st.dataframe(df[visible_cols], use_container_width=True, hide_index=True)
+
+    st.markdown("### Raporu E-posta ile Gönder")
+
+    selected = st.selectbox(
+        "Gönderilecek raporu seç",
+        df["file_name"].tolist()
+    )
+
+    selected_row = df[df["file_name"] == selected].iloc[0].to_dict()
+    to_email = st.text_input("Alıcı e-posta", value=user_email or "")
+
+    subject = st.text_input(
+        "Konu",
+        value=f"OptiFlow Raporunuz Hazır - {selected_row.get('file_name', '')}"
+    )
+
+    body = st.text_area(
+        "E-posta mesajı",
+        value=f"""Merhaba,
+
+OptiFlow analiz raporunuz hazırdır.
+
+Ekli dosyada rapor çıktısını bulabilirsiniz.
+
+Saygılarımızla,
+OptiFlow Enterprise"""
+    )
+
+    if st.button("Seçili Raporu Mail Gönder", type="primary"):
+        path = selected_row.get("file_path")
+        ok, msg = send_email_with_attachments(
+            to_email=to_email,
+            subject=subject,
+            body=body,
+            attachment_paths=[path]
+        )
+
+        save_email_log(
+            user_email=user_email,
+            to_email=to_email,
+            subject=subject,
+            status="success" if ok else "failed",
+            message=msg
+        )
+
+        if ok:
+            st.success(msg)
+        else:
+            st.error(msg)
+
+
+def render_report_delivery_center(user_email, active_plan, active_rules):
+    st.markdown("## Report Delivery Center")
+    st.caption("PDF, PPT ve Excel raporlarını e-posta ile gönderme merkezi")
+
+    if active_plan == "demo":
+        st.warning("Demo planda e-posta ile rapor gönderimi kapalıdır.")
+        render_locked_feature("Report Delivery", active_plan)
+        return
+
+    reports = load_user_reports(user_email)
+
+    if not reports:
+        st.info("Gönderilecek rapor bulunamadı. Önce Report Center veya Excel Upload AI üzerinden rapor oluştur.")
+        return
+
+    df = pd.DataFrame(reports)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        report_options = df["file_name"].tolist()
+        selected_files = st.multiselect("Gönderilecek raporlar", report_options, default=report_options[:1])
+
+    with col2:
+        to_email = st.text_input("Alıcı e-posta", value=user_email or "")
+
+    subject = st.text_input(
+        "Konu",
+        value="OptiFlow Enterprise Raporlarınız Hazır"
+    )
+
+    body = st.text_area(
+        "E-posta mesajı",
+        value=f"""Merhaba,
+
+OptiFlow Enterprise analiz çıktılarınız hazırlanmıştır.
+
+Ekli dosyalarda PDF, PowerPoint veya Excel raporlarınızı bulabilirsiniz.
+
+Bu rapor; operasyonel performans, finansal etki, benchmark ve yönetim önerileri içermektedir.
+
+Saygılarımızla,
+OptiFlow Enterprise"""
+    )
+
+    if st.button("Seçili Raporları E-posta ile Gönder", type="primary"):
+        selected_paths = []
+        for file_name in selected_files:
+            row = df[df["file_name"] == file_name]
+            if not row.empty:
+                selected_paths.append(row.iloc[0].get("file_path"))
+
+        ok, msg = send_email_with_attachments(
+            to_email=to_email,
+            subject=subject,
+            body=body,
+            attachment_paths=selected_paths
+        )
+
+        save_email_log(
+            user_email=user_email,
+            to_email=to_email,
+            subject=subject,
+            status="success" if ok else "failed",
+            message=msg
+        )
+
+        if ok:
+            st.success(msg)
+        else:
+            st.error(msg)
+
+    st.markdown("### Gönderim Geçmişi")
+    logs = load_email_logs(user_email=user_email, admin=False)
+
+    if logs:
+        log_df = pd.DataFrame(logs)
+        cols = [c for c in ["to_email", "subject", "status", "message", "created_at"] if c in log_df.columns]
+        st.dataframe(log_df[cols], use_container_width=True, hide_index=True)
+    else:
+        st.info("Henüz e-posta gönderim kaydı yok.")
+
+
+def render_admin_email_logs(user_email):
+    if not is_admin_user(user_email):
+        st.error("Bu sayfa sadece admin kullanıcılar içindir.")
+        st.stop()
+
+    st.markdown("## Admin Email Logs")
+    st.caption("Tüm kullanıcıların e-posta gönderim kayıtları")
+
+    logs = load_email_logs(admin=True)
+
+    if not logs:
+        st.info("Henüz e-posta log kaydı yok. email_logs tablosu yoksa SQL dosyasını çalıştır.")
+        return
+
+    df = pd.DataFrame(logs)
+    cols = [c for c in ["user_email", "to_email", "company_name", "subject", "status", "message", "created_at"] if c in df.columns]
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Toplam Mail", len(df))
+    if "status" in df.columns:
+        c2.metric("Başarılı", int((df["status"] == "success").sum()))
+        c3.metric("Başarısız", int((df["status"] == "failed").sum()))
+
+    st.dataframe(df[cols], use_container_width=True, hide_index=True)
+
+
+
 # ============================================================
 # V13 ADMIN ANALYTICS DASHBOARD
 # ============================================================
@@ -2047,7 +2364,7 @@ if page == "Landing Page":
     st.markdown(
         """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V13</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V14</div>
     <div class="hero-subtitle">
         Operational Excellence Intelligence Platform with Plotly Executive Dashboards, KPI Diagnostics and Enterprise Reporting.
     </div>
@@ -2076,7 +2393,7 @@ if page == "Landing Page":
 st.markdown(
     """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V13</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V14</div>
     <div class="hero-subtitle">
         Commercial Operations Excellence Platform | Plotly Dashboard | Benchmark Intelligence | PDF & PPT Export
     </div>
@@ -2339,6 +2656,9 @@ elif page == "Report Center":
     st.markdown("### Enterprise Report Center")
     st.write("PDF, PowerPoint ve Excel çıktıları plan seviyesine göre açılır.")
 
+    send_mail_after_report = st.checkbox("Rapor oluşturulunca e-posta gönder", value=False)
+    report_mail_to = st.text_input("Rapor alıcı e-posta", value=user_email or "")
+
     if not can_analyze:
         st.error("Analysis limit reached for your current plan.")
         render_locked_feature("Additional analyses", active_plan)
@@ -2422,7 +2742,36 @@ elif page == "Report Center":
                         recommendations=recommendations
                     )
 
-            st.success("Enterprise PDF raporu başarıyla oluşturuldu.")
+            if send_mail_after_report:
+                ok, mail_msg = send_email_with_attachments(
+                    to_email=report_mail_to,
+                    subject=f"OptiFlow Enterprise Raporunuz Hazır - {company_name}",
+                    body=f"""Merhaba,
+
+{company_name} için OptiFlow Enterprise analiz raporunuz hazırlanmıştır.
+
+Ekli dosyalarda PDF ve Excel çıktılarınızı bulabilirsiniz.
+
+Saygılarımızla,
+OptiFlow Enterprise""",
+                    attachment_paths=[pdf_file, excel_file]
+                )
+
+                save_email_log(
+                    user_email=user_email,
+                    to_email=report_mail_to,
+                    subject=f"OptiFlow Enterprise Raporunuz Hazır - {company_name}",
+                    status="success" if ok else "failed",
+                    message=mail_msg,
+                    company_name=company_name
+                )
+
+                if ok:
+                    st.success("Rapor oluşturuldu ve e-posta gönderildi.")
+                else:
+                    st.warning(f"Rapor oluşturuldu fakat e-posta gönderilemedi: {mail_msg}")
+            else:
+                st.success("Enterprise PDF raporu başarıyla oluşturuldu.")
 
             if project_path:
                 st.info(f"Müşteri analizi arşive kaydedildi: {project_path}")
@@ -2533,3 +2882,19 @@ elif page == "Admin Panel":
 
 elif page == "Admin Analytics":
     render_admin_analytics(user_email)
+
+
+elif page == "My Reports":
+    render_my_reports_center(user_email)
+
+
+elif page == "Report Delivery":
+    render_report_delivery_center(
+        user_email=user_email,
+        active_plan=active_plan,
+        active_rules=active_rules
+    )
+
+
+elif page == "Email Logs":
+    render_admin_email_logs(user_email)
