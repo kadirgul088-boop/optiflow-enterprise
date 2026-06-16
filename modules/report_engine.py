@@ -57,11 +57,12 @@ BLUE_BG = colors.HexColor("#eff6ff")
 
 def _clean_text(value):
     """
-    PDF'te siyah kutu olusmasini engellemek icin metni guvenli ASCII karakterlere cevirir.
-    Turkce karakterler okunabilir karsiliklarina cevrilir, emoji/ikon/ozel semboller kaldirilir.
+    PDF icin guvenli metin temizleme.
+    Turkce karakterleri KORUR.
+    Sadece emoji, ikon, variation selector ve PDF'te siyah kutu yapan sembolleri temizler.
     """
+    import unicodedata
     from xml.sax.saxutils import escape
-    import re
 
     if value is None:
         return ""
@@ -69,13 +70,6 @@ def _clean_text(value):
     text = str(value)
 
     replacements = {
-        "ç": "c", "Ç": "C",
-        "ğ": "g", "Ğ": "G",
-        "ı": "i", "İ": "I",
-        "ö": "o", "Ö": "O",
-        "ş": "s", "Ş": "S",
-        "ü": "u", "Ü": "U",
-
         "🔴": "KRITIK",
         "🟡": "DIKKAT",
         "🟢": "IYI",
@@ -92,6 +86,10 @@ def _clean_text(value):
         "🧠": "",
         "📄": "",
         "📌": "",
+        "🧾": "",
+        "📥": "",
+        "⚙️": "",
+        "⚙": "",
 
         "•": "-",
         "·": "-",
@@ -110,29 +108,33 @@ def _clean_text(value):
         "©": "(c)",
         "®": "(R)",
         "™": "(TM)",
-        "€": "EUR",
-        "₺": "TL"
     }
 
     for old, new in replacements.items():
         text = text.replace(old, new)
 
-    safe_chars = []
+    cleaned = []
+
     for ch in text:
         code = ord(ch)
-        if ch in "\\n\\r\\t":
-            safe_chars.append(ch)
-        elif 32 <= code <= 126:
-            safe_chars.append(ch)
-        else:
-            safe_chars.append(" ")
+        cat = unicodedata.category(ch)
 
-    text = "".join(safe_chars)
-    text = re.sub(r"[ \\t]+", " ", text)
-    text = text.strip()
+        # Remove variation selectors and zero width joiner
+        if code in [0xFE0F, 0xFE0E, 0x200D, 0x200C]:
+            continue
 
+        # Remove emojis and private/control/unassigned chars
+        if cat in {"So", "Cs", "Co", "Cn"}:
+            continue
+
+        # Keep letters, numbers, punctuation, currency, spaces and Turkish characters
+        cleaned.append(ch)
+
+    text = "".join(cleaned)
+
+    # Escape XML-sensitive chars for ReportLab Paragraph
     text = escape(text)
-    text = text.replace("\\n", "<br/>")
+    text = text.replace("\n", "<br/>")
 
     return text
 
