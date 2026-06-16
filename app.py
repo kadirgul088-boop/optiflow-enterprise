@@ -9,6 +9,7 @@ import streamlit as st
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+from supabase import create_client
 
 from modules.scoring import calculate_optiflow_score
 from modules.financial import calculate_financial_impact
@@ -31,7 +32,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="OptiFlow Enterprise V9",
+    page_title="OptiFlow Enterprise SaaS V10",
     page_icon="📊",
     layout="wide"
 )
@@ -442,6 +443,411 @@ def render_plotly_dashboard(
 
 
 
+
+# ============================================================
+# SAAS LAYER: AUTH + PLANS + SUPABASE
+# ============================================================
+
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
+SUPABASE_ANON_KEY = st.secrets.get("SUPABASE_ANON_KEY", "")
+SUPABASE_SERVICE_KEY = st.secrets.get("SUPABASE_SERVICE_KEY", "")
+
+
+@st.cache_resource
+def get_supabase_client():
+    key = SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY
+    if not SUPABASE_URL or not key:
+        return None
+    return create_client(SUPABASE_URL, key)
+
+
+PLAN_RULES = {
+    "demo": {
+        "label": "Demo",
+        "analysis_limit": 1,
+        "pdf": False,
+        "ppt": False,
+        "excel": False,
+        "ai": False,
+        "price": "Free Demo"
+    },
+    "starter": {
+        "label": "Starter",
+        "analysis_limit": 10,
+        "pdf": True,
+        "ppt": False,
+        "excel": True,
+        "ai": False,
+        "price": "$49 / month"
+    },
+    "professional": {
+        "label": "Professional",
+        "analysis_limit": 100,
+        "pdf": True,
+        "ppt": True,
+        "excel": True,
+        "ai": True,
+        "price": "$149 / month"
+    },
+    "enterprise": {
+        "label": "Enterprise",
+        "analysis_limit": 999999,
+        "pdf": True,
+        "ppt": True,
+        "excel": True,
+        "ai": True,
+        "price": "Custom"
+    }
+}
+
+
+def get_app_url():
+    return "https://optiflow-enterprise-ewxicdsl96crsq2ycortqo.streamlit.app"
+
+
+def is_logged_in():
+    try:
+        return bool(st.user.is_logged_in)
+    except Exception:
+        return False
+
+
+def current_user_email():
+    if st.session_state.get("demo_mode", False):
+        return "demo@optiflow.ai"
+
+    try:
+        return st.user.email
+    except Exception:
+        return None
+
+
+def current_user_name():
+    if st.session_state.get("demo_mode", False):
+        return "Demo User"
+
+    try:
+        return st.user.name
+    except Exception:
+        return current_user_email() or "User"
+
+
+def get_user_profile(email):
+    supabase = get_supabase_client()
+
+    if not supabase or not email:
+        return {
+            "email": email or "demo@optiflow.ai",
+            "full_name": "Demo User",
+            "plan": "demo",
+            "plan_status": "active",
+            "analysis_limit": 1
+        }
+
+    try:
+        result = supabase.table("users").select("*").eq("email", email).limit(1).execute()
+        if result.data:
+            return result.data[0]
+
+        # First login: create demo user record automatically.
+        payload = {
+            "email": email,
+            "full_name": current_user_name(),
+            "plan": "demo",
+            "plan_status": "active",
+            "analysis_limit": 1
+        }
+
+        supabase.table("users").insert(payload).execute()
+        return payload
+
+    except Exception as exc:
+        st.warning(f"Supabase user profile error: {exc}")
+        return {
+            "email": email,
+            "full_name": current_user_name(),
+            "plan": "demo",
+            "plan_status": "active",
+            "analysis_limit": 1
+        }
+
+
+def get_subscription(email, fallback_plan="demo"):
+    supabase = get_supabase_client()
+
+    if st.session_state.get("demo_mode", False):
+        return {
+            "plan": "demo",
+            "status": "active"
+        }
+
+    if not supabase or not email:
+        return {
+            "plan": fallback_plan,
+            "status": "inactive"
+        }
+
+    try:
+        result = supabase.table("subscriptions").select("*").eq("user_email", email).limit(1).execute()
+
+        if result.data:
+            return result.data[0]
+
+        # First login: create inactive/demo subscription.
+        payload = {
+            "user_email": email,
+            "plan": fallback_plan,
+            "status": "inactive"
+        }
+
+        supabase.table("subscriptions").insert(payload).execute()
+        return payload
+
+    except Exception as exc:
+        st.warning(f"Supabase subscription error: {exc}")
+        return {
+            "plan": fallback_plan,
+            "status": "inactive"
+        }
+
+
+def resolve_active_plan(email):
+    profile = get_user_profile(email)
+    subscription = get_subscription(email, profile.get("plan", "demo"))
+
+    profile_plan = str(profile.get("plan", "demo")).lower()
+    sub_plan = str(subscription.get("plan", profile_plan)).lower()
+    sub_status = str(subscription.get("status", "inactive")).lower()
+
+    # Paid plans only unlock features when subscription status is active/trialing.
+    if sub_plan in ["starter", "professional", "enterprise"] and sub_status in ["active", "trialing"]:
+        plan = sub_plan
+    else:
+        plan = profile_plan if profile_plan in PLAN_RULES else "demo"
+
+    if st.session_state.get("demo_mode", False):
+        plan = "demo"
+
+    return plan, PLAN_RULES.get(plan, PLAN_RULES["demo"]), profile, subscription
+
+
+def count_user_projects(email):
+    supabase = get_supabase_client()
+
+    if not supabase or not email:
+        return 0
+
+    try:
+        result = supabase.table("projects").select("id", count="exact").eq("user_email", email).execute()
+        return result.count or 0
+    except Exception:
+        return 0
+
+
+def can_create_analysis(email, plan_rules):
+    used = count_user_projects(email)
+    limit = int(plan_rules.get("analysis_limit", 1))
+    return used < limit, used, limit
+
+
+def save_project_to_supabase(
+    user_email,
+    company_name,
+    sector,
+    score,
+    risk_level,
+    financial_result
+):
+    supabase = get_supabase_client()
+
+    if not supabase or not user_email:
+        return None
+
+    try:
+        payload = {
+            "user_email": user_email,
+            "company_name": company_name,
+            "sector": sector,
+            "score": float(score),
+            "risk_level": risk_level,
+            "annual_saving": float(financial_result.get("Tahmini Yıllık Tasarruf", 0))
+        }
+
+        result = supabase.table("projects").insert(payload).execute()
+
+        if result.data:
+            return result.data[0].get("id")
+
+    except Exception as exc:
+        st.warning(f"Supabase project save error: {exc}")
+
+    return None
+
+
+def save_report_to_supabase(user_email, project_id, report_type, file_name, file_path):
+    supabase = get_supabase_client()
+
+    if not supabase or not user_email or not project_id:
+        return None
+
+    try:
+        payload = {
+            "user_email": user_email,
+            "project_id": project_id,
+            "report_type": report_type,
+            "file_name": file_name,
+            "file_path": file_path
+        }
+
+        result = supabase.table("reports").insert(payload).execute()
+
+        if result.data:
+            return result.data[0].get("id")
+
+    except Exception as exc:
+        st.warning(f"Supabase report save error: {exc}")
+
+    return None
+
+
+def load_user_projects(user_email):
+    supabase = get_supabase_client()
+
+    if not supabase or not user_email:
+        return []
+
+    try:
+        result = (
+            supabase.table("projects")
+            .select("*")
+            .eq("user_email", user_email)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return result.data or []
+    except Exception as exc:
+        st.warning(f"Supabase project load error: {exc}")
+        return []
+
+
+def render_public_landing():
+    st.markdown(
+        """
+<div class="hero">
+    <div class="hero-title">OptiFlow Enterprise SaaS</div>
+    <div class="hero-subtitle">
+        AI-powered Operational Excellence Platform for KPI diagnostics, financial impact analysis and executive reporting.
+    </div>
+    <span class="hero-badge">AI Consulting</span>
+    <span class="hero-badge">PDF / PPT / Excel Reports</span>
+    <span class="hero-badge">Benchmark Intelligence</span>
+    <span class="hero-badge">Client Portal</span>
+</div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown("## Choose your access")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    plans = [
+        ("Demo", "Free Demo", "1 sample analysis", "No exports", "No AI"),
+        ("Starter", "$49 / month", "10 analyses", "PDF + Excel", "No PPT / AI"),
+        ("Professional", "$149 / month", "100 analyses", "PDF + PPT + Excel", "AI Copilot"),
+        ("Enterprise", "Custom", "Unlimited", "Team support", "Custom deployment")
+    ]
+
+    for col, plan in zip([col1, col2, col3, col4], plans):
+        with col:
+            st.markdown(
+                f"""
+                <div style="padding:22px;border:1px solid #e2e8f0;border-radius:18px;background:white;min-height:235px;">
+                    <h3>{plan[0]}</h3>
+                    <h2>{plan[1]}</h2>
+                    <p>{plan[2]}</p>
+                    <p>{plan[3]}</p>
+                    <p>{plan[4]}</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    st.markdown("---")
+
+    col_login, col_demo = st.columns(2)
+
+    with col_login:
+        st.markdown("### Customer Login")
+        st.write("Paid users and trial customers can sign in with Google.")
+        if st.button("Sign in with Google", type="primary"):
+            st.login()
+
+    with col_demo:
+        st.markdown("### Try Demo")
+        st.write("Use the limited demo mode without exports and without AI Copilot.")
+        if st.button("Continue with Demo"):
+            st.session_state.demo_mode = True
+            st.rerun()
+
+    st.info("Payments are controlled by subscription plan records. Users without an active plan stay in Demo mode.")
+
+
+def render_user_bar(user_email, plan, rules, used, limit):
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Account")
+
+    if st.session_state.get("demo_mode", False):
+        st.sidebar.info("Demo Mode")
+        if st.sidebar.button("Exit Demo"):
+            st.session_state.demo_mode = False
+            st.rerun()
+    else:
+        st.sidebar.success(current_user_name())
+        st.sidebar.caption(user_email)
+        if st.sidebar.button("Log out"):
+            st.logout()
+
+    st.sidebar.markdown(f"**Plan:** {rules.get('label', plan)}")
+    st.sidebar.markdown(f"**Usage:** {used}/{limit if limit < 999999 else 'Unlimited'} analyses")
+
+    if plan == "demo":
+        st.sidebar.warning("Exports and AI Copilot are locked in Demo.")
+    elif plan == "starter":
+        st.sidebar.info("Starter: PDF + Excel enabled.")
+    elif plan == "professional":
+        st.sidebar.success("Professional: Full reporting + AI enabled.")
+    elif plan == "enterprise":
+        st.sidebar.success("Enterprise: Full access enabled.")
+
+
+def render_locked_feature(feature_name, plan):
+    st.warning(
+        f"{feature_name} is locked for your current plan ({plan}). "
+        "Upgrade to unlock this feature."
+    )
+
+    starter_link = st.secrets.get("STRIPE_STARTER_LINK", "")
+    professional_link = st.secrets.get("STRIPE_PROFESSIONAL_LINK", "")
+    enterprise_link = st.secrets.get("ENTERPRISE_CONTACT_LINK", "")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        if starter_link:
+            st.link_button("Upgrade to Starter", starter_link)
+
+    with col2:
+        if professional_link:
+            st.link_button("Upgrade to Professional", professional_link)
+
+    with col3:
+        if enterprise_link:
+            st.link_button("Contact Enterprise Sales", enterprise_link)
+
+
+
+
 def create_excel_report(
     company_name,
     sector,
@@ -774,16 +1180,37 @@ with st.sidebar:
             "Analysis",
             "Benchmark Center",
             "Clients",
-            "Report Center"
+            "Report Center",
+            "Billing"
         ]
     )
+
+
+
+
+# ============================================================
+# AUTH GATE
+# ============================================================
+
+if "demo_mode" not in st.session_state:
+    st.session_state.demo_mode = False
+
+if not is_logged_in() and not st.session_state.get("demo_mode", False):
+    render_public_landing()
+    st.stop()
+
+user_email = current_user_email()
+active_plan, active_rules, user_profile, subscription = resolve_active_plan(user_email)
+can_analyze, analyses_used, analyses_limit = can_create_analysis(user_email, active_rules)
+
+render_user_bar(user_email, active_plan, active_rules, analyses_used, analyses_limit)
 
 
 if page == "Landing Page":
     st.markdown(
         """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise V9</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V10</div>
     <div class="hero-subtitle">
         Operational Excellence Intelligence Platform with Plotly Executive Dashboards, KPI Diagnostics and Enterprise Reporting.
     </div>
@@ -812,7 +1239,7 @@ if page == "Landing Page":
 st.markdown(
     """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise V9</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V10</div>
     <div class="hero-subtitle">
         Commercial Operations Excellence Platform | Plotly Dashboard | Benchmark Intelligence | PDF & PPT Export
     </div>
@@ -949,17 +1376,20 @@ if page == "Dashboard":
 
 
 elif page == "AI Copilot":
-    render_ai_copilot(
-        company_name=company_name,
-        sector=sector,
-        score=score,
-        maturity=maturity,
-        company_metrics=company_metrics,
-        financial_result=financial_result,
-        recommendations=recommendations,
-        risk_score=risk_score,
-        risk_level=risk_level
-    )
+    if not active_rules.get("ai", False):
+        render_locked_feature("AI Copilot", active_plan)
+    else:
+        render_ai_copilot(
+            company_name=company_name,
+            sector=sector,
+            score=score,
+            maturity=maturity,
+            company_metrics=company_metrics,
+            financial_result=financial_result,
+            recommendations=recommendations,
+            risk_score=risk_score,
+            risk_level=risk_level
+        )
 
 
 elif page == "Analysis":
@@ -1027,35 +1457,51 @@ elif page == "Benchmark Center":
 
 
 elif page == "Clients":
-    st.markdown("### Client Management")
+    st.markdown("### My Client Projects")
 
-    records = load_client_records()
+    projects = load_user_projects(user_email)
 
-    if not records:
-        st.info("Henüz kayıtlı müşteri analizi bulunmuyor.")
+    if not projects:
+        st.info("No saved projects yet. Create a report from Report Center to save a project.")
     else:
-        client_names = sorted(list(set([record.get("company_name", "-") for record in records])))
-        selected_client = st.selectbox("Müşteri seç", client_names)
+        st.dataframe(
+            pd.DataFrame(projects)[[
+                "company_name",
+                "sector",
+                "score",
+                "risk_level",
+                "annual_saving",
+                "created_at"
+            ]],
+            use_container_width=True,
+            hide_index=True
+        )
 
-        filtered = [record for record in records if record.get("company_name") == selected_client]
+        selected_company = st.selectbox(
+            "Select company",
+            sorted(list(set([p.get("company_name", "-") for p in projects])))
+        )
 
-        st.markdown(f"### {selected_client} Analiz Geçmişi")
-
-        for record in filtered:
-            with st.expander(f"{record.get('created_at')} | Score: {record.get('score')}/100"):
-                st.write(f"Sektör: {record.get('sector')}")
-                st.write(f"Olgunluk: {record.get('maturity', {}).get('Seviye', '-')}")
-                st.json(record.get("financial_result", {}))
+        for project in [p for p in projects if p.get("company_name") == selected_company]:
+            with st.expander(f"{project.get('created_at')} | Score: {project.get('score')}/100"):
+                st.json(project)
 
 
 elif page == "Report Center":
     st.markdown("### Enterprise Report Center")
-    st.write("PDF veya PowerPoint raporu oluşturmak için aşağıdaki butonları kullan.")
+    st.write("PDF, PowerPoint ve Excel çıktıları plan seviyesine göre açılır.")
+
+    if not can_analyze:
+        st.error("Analysis limit reached for your current plan.")
+        render_locked_feature("Additional analyses", active_plan)
+        st.stop()
 
     col_pdf, col_ppt = st.columns(2)
 
     with col_pdf:
-        if st.button("Enterprise PDF Raporu Oluştur", type="primary"):
+        if not active_rules.get("pdf", False):
+            render_locked_feature("PDF / Excel Export", active_plan)
+        elif st.button("Enterprise PDF Raporu Oluştur", type="primary"):
             with st.spinner("OptiFlow Enterprise PDF raporu hazırlanıyor..."):
                 consulting_report = generate_consulting_report(
                     sector=sector,
@@ -1090,6 +1536,31 @@ elif page == "Report Center":
                     risk_score=risk_score,
                     risk_level=risk_level
                 )
+
+                supabase_project_id = save_project_to_supabase(
+                    user_email=user_email,
+                    company_name=company_name,
+                    sector=sector,
+                    score=score,
+                    risk_level=risk_level,
+                    financial_result=financial_result
+                )
+
+                if supabase_project_id:
+                    save_report_to_supabase(
+                        user_email=user_email,
+                        project_id=supabase_project_id,
+                        report_type="pdf",
+                        file_name=os.path.basename(pdf_file),
+                        file_path=pdf_file
+                    )
+                    save_report_to_supabase(
+                        user_email=user_email,
+                        project_id=supabase_project_id,
+                        report_type="excel",
+                        file_name=os.path.basename(excel_file),
+                        file_path=excel_file
+                    )
 
                 project_path = None
                 if save_project:
@@ -1126,7 +1597,9 @@ elif page == "Report Center":
                     )
 
     with col_ppt:
-        if st.button("Executive PPTX Oluştur"):
+        if not active_rules.get("ppt", False):
+            render_locked_feature("PowerPoint Export", active_plan)
+        elif st.button("Executive PPTX Oluştur"):
             if create_enterprise_pptx is None:
                 st.error("PPTX modülü bulunamadı. modules/ppt_engine.py dosyasını ekle.")
             else:
@@ -1156,3 +1629,51 @@ elif page == "Report Center":
                         file_name=os.path.basename(ppt_file),
                         mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
                     )
+
+
+elif page == "Billing":
+    st.markdown("### Billing & Subscription")
+
+    st.write(f"Current user: **{user_email}**")
+    st.write(f"Current plan: **{active_rules.get('label', active_plan)}**")
+    st.write(f"Subscription status: **{subscription.get('status', 'inactive')}**")
+    st.write(f"Usage: **{analyses_used}/{analyses_limit if analyses_limit < 999999 else 'Unlimited'} analyses**")
+
+    st.markdown("### Upgrade Plans")
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.markdown("#### Starter")
+        st.write("$49/month")
+        st.write("10 analyses/month")
+        st.write("PDF + Excel exports")
+        link = st.secrets.get("STRIPE_STARTER_LINK", "")
+        if link:
+            st.link_button("Buy Starter", link)
+        else:
+            st.info("Stripe link not configured yet.")
+
+    with c2:
+        st.markdown("#### Professional")
+        st.write("$149/month")
+        st.write("100 analyses/month")
+        st.write("PDF + PPT + Excel + AI")
+        link = st.secrets.get("STRIPE_PROFESSIONAL_LINK", "")
+        if link:
+            st.link_button("Buy Professional", link)
+        else:
+            st.info("Stripe link not configured yet.")
+
+    with c3:
+        st.markdown("#### Enterprise")
+        st.write("Custom")
+        st.write("Unlimited usage")
+        st.write("Team support + custom deployment")
+        link = st.secrets.get("ENTERPRISE_CONTACT_LINK", "")
+        if link:
+            st.link_button("Contact Sales", link)
+        else:
+            st.info("Contact link not configured yet.")
+
+    st.caption("After payment, subscription activation can be automated with Stripe webhooks. For now, update the subscriptions table manually or via webhook service.")
