@@ -32,7 +32,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="OptiFlow Enterprise SaaS V10",
+    page_title="OptiFlow Enterprise SaaS V11",
     page_icon="📊",
     layout="wide"
 )
@@ -1181,10 +1181,161 @@ with st.sidebar:
             "Benchmark Center",
             "Clients",
             "Report Center",
-            "Billing"
+            "Billing",
+            "Admin Panel"
         ]
     )
 
+
+
+
+
+
+# ============================================================
+# ADMIN PANEL LAYER
+# ============================================================
+
+def get_admin_emails():
+    raw = st.secrets.get("ADMIN_EMAILS", "")
+    if not raw:
+        return []
+    return [email.strip().lower() for email in raw.split(",") if email.strip()]
+
+
+def is_admin_user(email):
+    return str(email or "").lower() in get_admin_emails()
+
+
+def admin_load_table(table_name):
+    supabase = get_supabase_client()
+    if not supabase:
+        return []
+
+    try:
+        result = supabase.table(table_name).select("*").execute()
+        return result.data or []
+    except Exception as exc:
+        st.error(f"Admin table load error ({table_name}): {exc}")
+        return []
+
+
+def admin_update_user_plan(email, plan, status):
+    supabase = get_supabase_client()
+    if not supabase:
+        return False
+
+    rules = PLAN_RULES.get(plan, PLAN_RULES["demo"])
+
+    try:
+        supabase.table("users").update({
+            "plan": plan,
+            "plan_status": status,
+            "analysis_limit": int(rules.get("analysis_limit", 1))
+        }).eq("email", email).execute()
+
+        supabase.table("subscriptions").upsert({
+            "user_email": email,
+            "plan": plan,
+            "status": status
+        }).execute()
+
+        return True
+    except Exception as exc:
+        st.error(f"Plan update error: {exc}")
+        return False
+
+
+def render_admin_dashboard(user_email):
+    if not is_admin_user(user_email):
+        st.error("Bu sayfa sadece admin kullanıcılar içindir.")
+        st.stop()
+
+    st.markdown("## Admin Dashboard")
+    st.caption("OptiFlow SaaS yönetim paneli")
+
+    users = admin_load_table("users")
+    projects = admin_load_table("projects")
+    reports = admin_load_table("reports")
+    subscriptions = admin_load_table("subscriptions")
+
+    total_users = len(users)
+    total_projects = len(projects)
+    total_reports = len(reports)
+    active_subs = len([s for s in subscriptions if str(s.get("status", "")).lower() in ["active", "trialing"]])
+    demo_users = len([u for u in users if str(u.get("plan", "demo")).lower() == "demo"])
+    professional_users = len([u for u in users if str(u.get("plan", "")).lower() == "professional"])
+    enterprise_users = len([u for u in users if str(u.get("plan", "")).lower() == "enterprise"])
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Toplam Kullanıcı", total_users)
+    c2.metric("Aktif Abone", active_subs)
+    c3.metric("Demo Kullanıcı", demo_users)
+    c4.metric("Toplam Analiz", total_projects)
+    c5.metric("Toplam Rapor", total_reports)
+
+    st.markdown("### Plan Dağılımı")
+    plan_rows = []
+    for plan in ["demo", "starter", "professional", "enterprise"]:
+        count = len([u for u in users if str(u.get("plan", "demo")).lower() == plan])
+        plan_rows.append({"Plan": plan, "Kullanıcı Sayısı": count})
+
+    st.dataframe(plan_rows, use_container_width=True, hide_index=True)
+
+    st.markdown("### Kullanıcı Yönetimi")
+
+    if not users:
+        st.info("Henüz kullanıcı yok.")
+    else:
+        user_options = [u.get("email") for u in users if u.get("email")]
+        selected_email = st.selectbox("Kullanıcı seç", user_options)
+
+        selected_user = next((u for u in users if u.get("email") == selected_email), {})
+        st.json(selected_user)
+
+        col_plan, col_status, col_button = st.columns([2, 2, 1])
+
+        with col_plan:
+            new_plan = st.selectbox(
+                "Plan",
+                ["demo", "starter", "professional", "enterprise"],
+                index=["demo", "starter", "professional", "enterprise"].index(
+                    str(selected_user.get("plan", "demo")).lower()
+                    if str(selected_user.get("plan", "demo")).lower() in ["demo", "starter", "professional", "enterprise"]
+                    else "demo"
+                )
+            )
+
+        with col_status:
+            new_status = st.selectbox(
+                "Status",
+                ["inactive", "active", "trialing", "canceled"],
+                index=1 if str(selected_user.get("plan_status", "inactive")).lower() == "active" else 0
+            )
+
+        with col_button:
+            st.write("")
+            st.write("")
+            if st.button("Güncelle", type="primary"):
+                ok = admin_update_user_plan(selected_email, new_plan, new_status)
+                if ok:
+                    st.success("Kullanıcı planı güncellendi.")
+                    st.rerun()
+
+    st.markdown("### Son Analizler")
+    if projects:
+        project_df = pd.DataFrame(projects)
+        columns = [c for c in ["user_email", "company_name", "sector", "score", "risk_level", "annual_saving", "created_at"] if c in project_df.columns]
+        st.dataframe(project_df[columns], use_container_width=True, hide_index=True)
+    else:
+        st.info("Henüz analiz kaydı yok.")
+
+    st.markdown("### Rapor Kayıtları")
+    if reports:
+        report_df = pd.DataFrame(reports)
+        columns = [c for c in ["user_email", "report_type", "file_name", "created_at"] if c in report_df.columns]
+        st.dataframe(report_df[columns], use_container_width=True, hide_index=True)
+    else:
+        st.info("Henüz rapor kaydı yok.")
 
 
 
@@ -1210,7 +1361,7 @@ if page == "Landing Page":
     st.markdown(
         """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V10</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V11</div>
     <div class="hero-subtitle">
         Operational Excellence Intelligence Platform with Plotly Executive Dashboards, KPI Diagnostics and Enterprise Reporting.
     </div>
@@ -1239,7 +1390,7 @@ if page == "Landing Page":
 st.markdown(
     """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V10</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V11</div>
     <div class="hero-subtitle">
         Commercial Operations Excellence Platform | Plotly Dashboard | Benchmark Intelligence | PDF & PPT Export
     </div>
@@ -1677,3 +1828,7 @@ elif page == "Billing":
             st.info("Contact link not configured yet.")
 
     st.caption("After payment, subscription activation can be automated with Stripe webhooks. For now, update the subscriptions table manually or via webhook service.")
+
+
+elif page == "Admin Panel":
+    render_admin_dashboard(user_email)
