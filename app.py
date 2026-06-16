@@ -32,7 +32,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="OptiFlow Enterprise SaaS V11",
+    page_title="OptiFlow Enterprise SaaS V12",
     page_icon="📊",
     layout="wide"
 )
@@ -533,15 +533,6 @@ def current_user_name():
 
 
 def get_user_profile(email):
-    if st.session_state.get("demo_mode", False):
-        return {
-            "email": "demo@optiflow.ai",
-            "full_name": "Demo User",
-            "plan": "demo",
-            "plan_status": "active",
-            "analysis_limit": 1
-        }
-
     supabase = get_supabase_client()
 
     if not supabase or not email:
@@ -554,18 +545,11 @@ def get_user_profile(email):
         }
 
     try:
-        result = (
-            supabase
-            .table("users")
-            .select("*")
-            .eq("email", email)
-            .limit(1)
-            .execute()
-        )
-
+        result = supabase.table("users").select("*").eq("email", email).limit(1).execute()
         if result.data:
             return result.data[0]
 
+        # First login: create demo user record automatically.
         payload = {
             "email": email,
             "full_name": current_user_name(),
@@ -577,7 +561,8 @@ def get_user_profile(email):
         supabase.table("users").insert(payload).execute()
         return payload
 
-    except Exception:
+    except Exception as exc:
+        st.warning(f"Supabase user profile error: {exc}")
         return {
             "email": email,
             "full_name": current_user_name(),
@@ -1193,6 +1178,7 @@ with st.sidebar:
             "Dashboard",
             "AI Copilot",
             "Analysis",
+            "Excel Upload AI",
             "Benchmark Center",
             "Clients",
             "Report Center",
@@ -1203,6 +1189,433 @@ with st.sidebar:
 
 
 
+
+
+
+
+
+# ============================================================
+# V12 EXCEL UPLOAD + AUTO KPI ENGINE
+# ============================================================
+
+def _normalize_col_name(name):
+    text = str(name).strip().lower()
+    replacements = {
+        "ı": "i", "İ": "i", "ğ": "g", "ü": "u", "ş": "s", "ö": "o", "ç": "c"
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = text.replace("(", " ").replace(")", " ").replace("/", " ").replace("-", " ").replace("_", " ")
+    text = " ".join(text.split())
+    return text
+
+
+def _find_excel_column(df, candidates):
+    normalized = {_normalize_col_name(col): col for col in df.columns}
+
+    for candidate in candidates:
+        candidate_norm = _normalize_col_name(candidate)
+        if candidate_norm in normalized:
+            return normalized[candidate_norm]
+
+    for norm_col, original_col in normalized.items():
+        for candidate in candidates:
+            if _normalize_col_name(candidate) in norm_col:
+                return original_col
+
+    return None
+
+
+def _safe_numeric_series(df, col_name):
+    if not col_name or col_name not in df.columns:
+        return pd.Series([0] * len(df))
+
+    return pd.to_numeric(df[col_name], errors="coerce").fillna(0)
+
+
+def auto_kpi_from_uploaded_excel(uploaded_file):
+    df = pd.read_excel(uploaded_file)
+
+    if df.empty:
+        raise ValueError("Excel dosyası boş görünüyor.")
+
+    process_col = _find_excel_column(df, [
+        "process", "süreç", "surec", "operasyon", "istasyon", "station", "workstation", "hat", "line"
+    ])
+
+    cycle_col = _find_excel_column(df, [
+        "cycle time", "cycle_time", "çevrim süresi", "cevrim suresi", "islem suresi", "işlem süresi",
+        "processing time", "operation time", "sure", "süre"
+    ])
+
+    wait_col = _find_excel_column(df, [
+        "wait minutes", "waiting time", "bekleme", "bekleme süresi", "bekleme suresi",
+        "wait", "delay", "gecikme", "queue time"
+    ])
+
+    total_qty_col = _find_excel_column(df, [
+        "total qty", "total quantity", "production qty", "üretim adedi", "uretim adedi",
+        "adet", "quantity", "qty", "output", "uretim", "üretim"
+    ])
+
+    good_qty_col = _find_excel_column(df, [
+        "good qty", "good quantity", "sağlam", "saglam", "kaliteli adet", "ok qty",
+        "accepted qty", "good", "ok"
+    ])
+
+    defect_qty_col = _find_excel_column(df, [
+        "defect qty", "defect", "scrap", "fire", "hata", "hatalı", "hatali",
+        "red", "rejected qty", "reject"
+    ])
+
+    planned_time_col = _find_excel_column(df, [
+        "planned time", "planned minutes", "planlı süre", "planli sure", "vardiya süresi",
+        "vardiya suresi", "available time", "availability time"
+    ])
+
+    downtime_col = _find_excel_column(df, [
+        "downtime", "down time", "duruş", "durus", "arıza", "ariza", "stop time", "loss time"
+    ])
+
+    cycle = _safe_numeric_series(df, cycle_col)
+    wait = _safe_numeric_series(df, wait_col)
+    total_qty = _safe_numeric_series(df, total_qty_col)
+    good_qty = _safe_numeric_series(df, good_qty_col)
+    defect_qty = _safe_numeric_series(df, defect_qty_col)
+    planned_time = _safe_numeric_series(df, planned_time_col)
+    downtime = _safe_numeric_series(df, downtime_col)
+
+    total_cycle = float(cycle.sum())
+    total_wait = float(wait.sum())
+
+    if total_cycle + total_wait > 0:
+        wait_rate = round((total_wait / (total_cycle + total_wait)) * 100, 1)
+    else:
+        wait_rate = 0.0
+
+    if defect_qty.sum() > 0 and (good_qty.sum() + defect_qty.sum()) > 0:
+        defect_rate = round((float(defect_qty.sum()) / float(good_qty.sum() + defect_qty.sum())) * 100, 1)
+    elif total_qty.sum() > 0 and good_qty.sum() > 0:
+        defect_rate = round(max(0, (1 - (float(good_qty.sum()) / float(total_qty.sum()))) * 100), 1)
+    else:
+        defect_rate = 0.0
+
+    if cycle.max() > 0:
+        line_balance_loss = round(((float(cycle.max()) - float(cycle.mean())) / float(cycle.max())) * 100, 1)
+    else:
+        line_balance_loss = 0.0
+
+    if planned_time.sum() > 0:
+        availability = max(0, min(1, (float(planned_time.sum()) - float(downtime.sum())) / float(planned_time.sum())))
+    else:
+        availability = 0.85
+
+    quality = max(0, min(1, 1 - defect_rate / 100))
+
+    if total_qty.sum() > 0 and planned_time.sum() > 0:
+        performance = max(0, min(1, float(total_qty.sum()) / max(float(planned_time.sum()), 1)))
+        if performance > 1:
+            performance = 0.90
+    else:
+        performance = 0.90
+
+    oee = round(availability * performance * quality * 100, 1)
+    if oee <= 0:
+        oee = 70.0
+
+    capacity_score = round(max(0, min(100, 100 - line_balance_loss)), 1)
+
+    bottleneck = None
+    if process_col and wait_col:
+        bottleneck_df = df.copy()
+        bottleneck_df["_wait_numeric"] = wait
+        bottleneck_row = bottleneck_df.sort_values("_wait_numeric", ascending=False).head(1)
+        if not bottleneck_row.empty:
+            bottleneck = {
+                "process": str(bottleneck_row.iloc[0].get(process_col, "-")),
+                "wait_minutes": float(bottleneck_row.iloc[0].get("_wait_numeric", 0))
+            }
+
+    pareto_data = None
+    if process_col and wait_col:
+        pareto_data = (
+            df.assign(_wait_numeric=wait)
+            .groupby(process_col, dropna=False)["_wait_numeric"]
+            .sum()
+            .sort_values(ascending=False)
+            .reset_index()
+            .rename(columns={process_col: "Process", "_wait_numeric": "Wait Minutes"})
+        )
+
+    detected_columns = {
+        "process": process_col,
+        "cycle_time": cycle_col,
+        "wait_minutes": wait_col,
+        "total_qty": total_qty_col,
+        "good_qty": good_qty_col,
+        "defect_qty": defect_qty_col,
+        "planned_time": planned_time_col,
+        "downtime": downtime_col
+    }
+
+    metrics = {
+        "wait_rate": wait_rate,
+        "oee": oee,
+        "defect_rate": defect_rate,
+        "line_balance_loss": line_balance_loss,
+        "capacity_score": capacity_score
+    }
+
+    financial_inputs = {
+        "total_wait_minutes": round(total_wait, 1) if total_wait > 0 else 120,
+        "hourly_labor_cost": 250,
+        "working_days": 22,
+        "improvement_rate": 20
+    }
+
+    return {
+        "dataframe": df,
+        "metrics": metrics,
+        "financial_inputs": financial_inputs,
+        "detected_columns": detected_columns,
+        "bottleneck": bottleneck,
+        "pareto_data": pareto_data
+    }
+
+
+def create_v12_excel_template():
+    file_name = os.path.join(EXPORT_DIR, "OptiFlow_V12_Upload_Template.xlsx")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Production Data"
+
+    headers = [
+        "Process",
+        "Cycle Time",
+        "Wait Minutes",
+        "Production Qty",
+        "Good Qty",
+        "Defect Qty",
+        "Planned Time",
+        "Downtime"
+    ]
+
+    ws.append(headers)
+
+    sample_rows = [
+        ["Cutting", 45, 18, 120, 116, 4, 480, 20],
+        ["Sewing", 62, 35, 110, 104, 6, 480, 35],
+        ["Quality Control", 38, 12, 105, 101, 4, 480, 15],
+        ["Packing", 30, 8, 100, 98, 2, 480, 10],
+    ]
+
+    for row in sample_rows:
+        ws.append(row)
+
+    for col in ws.columns:
+        col_letter = col[0].column_letter
+        ws.column_dimensions[col_letter].width = 18
+        for cell in col:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+    wb.save(file_name)
+    return file_name
+
+
+def render_v12_excel_upload_center(
+    company_name,
+    sector,
+    active_plan,
+    active_rules
+):
+    st.markdown("## V12 Excel Upload + Automatic KPI Engine")
+    st.write("Üretim veya operasyon verisini yükle; OptiFlow otomatik KPI, darboğaz, benchmark ve finansal analiz üretir.")
+
+    if active_plan == "demo":
+        st.warning("Demo planda Excel Upload sınırlıdır. Örnek şablonu indirip test edebilirsin; rapor export kilitlidir.")
+
+    template_path = create_v12_excel_template()
+    with open(template_path, "rb") as file:
+        st.download_button(
+            "OptiFlow Excel Şablonu İndir",
+            data=file,
+            file_name="OptiFlow_V12_Upload_Template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    uploaded_file = st.file_uploader(
+        "Excel dosyası yükle",
+        type=["xlsx", "xls"],
+        help="Önerilen kolonlar: Process, Cycle Time, Wait Minutes, Production Qty, Good Qty, Defect Qty, Planned Time, Downtime"
+    )
+
+    if not uploaded_file:
+        st.info("Excel dosyası yüklediğinde otomatik KPI hesaplama başlayacak.")
+        return
+
+    try:
+        result = auto_kpi_from_uploaded_excel(uploaded_file)
+    except Exception as exc:
+        st.error(f"Excel okunamadı: {exc}")
+        return
+
+    metrics = result["metrics"]
+    financial_inputs = result["financial_inputs"]
+
+    st.success("Excel başarıyla analiz edildi.")
+
+    st.markdown("### Algılanan Kolonlar")
+    st.json(result["detected_columns"])
+
+    st.markdown("### Otomatik KPI Sonuçları")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Bekleme Oranı", f"%{metrics['wait_rate']}")
+    c2.metric("OEE", f"%{metrics['oee']}")
+    c3.metric("Hata Oranı", f"%{metrics['defect_rate']}")
+    c4.metric("Hat Denge Kaybı", f"%{metrics['line_balance_loss']}")
+    c5.metric("Kapasite Skoru", f"%{metrics['capacity_score']}")
+
+    if result.get("bottleneck"):
+        st.warning(
+            f"Kritik darboğaz: {result['bottleneck']['process']} - "
+            f"{result['bottleneck']['wait_minutes']} dk bekleme"
+        )
+
+    st.markdown("### Yüklenen Veri Önizleme")
+    st.dataframe(result["dataframe"], use_container_width=True)
+
+    if result.get("pareto_data") is not None:
+        st.markdown("### Bekleme Pareto Analizi")
+        st.dataframe(result["pareto_data"], use_container_width=True)
+        try:
+            st.bar_chart(result["pareto_data"].set_index("Process"), use_container_width=True)
+        except Exception:
+            pass
+
+    auto_company_metrics = {
+        "wait_rate": metrics["wait_rate"],
+        "oee": metrics["oee"],
+        "defect_rate": metrics["defect_rate"],
+        "line_balance_loss": metrics["line_balance_loss"]
+    }
+
+    auto_benchmark = benchmark_from_database(auto_company_metrics, sector)
+
+    auto_score = calculate_optiflow_score(
+        efficiency_score=100 - metrics["wait_rate"],
+        oee_score=metrics["oee"],
+        capacity_score=metrics["capacity_score"],
+        flow_score=100 - metrics["line_balance_loss"],
+        quality_score=100 - metrics["defect_rate"]
+    )
+
+    auto_maturity = get_maturity_comment(auto_score)
+
+    auto_financial = calculate_financial_impact(
+        total_wait_minutes=financial_inputs["total_wait_minutes"],
+        improvement_rate=financial_inputs["improvement_rate"],
+        hourly_labor_cost=financial_inputs["hourly_labor_cost"],
+        working_days_per_month=financial_inputs["working_days"]
+    )
+
+    auto_recommendations = generate_recommendations(
+        wait_rate=metrics["wait_rate"],
+        oee=metrics["oee"],
+        line_balance_loss=metrics["line_balance_loss"]
+    )
+
+    auto_risk_score, auto_risk_level, _, _ = risk_status(
+        metrics["wait_rate"],
+        metrics["oee"],
+        metrics["defect_rate"],
+        metrics["line_balance_loss"]
+    )
+
+    st.markdown("### Otomatik OptiFlow Değerlendirmesi")
+    render_plotly_dashboard(
+        company_name=company_name,
+        score=auto_score,
+        maturity=auto_maturity,
+        company_metrics=auto_company_metrics,
+        benchmark_result=auto_benchmark,
+        financial_result=auto_financial,
+        risk_score=auto_risk_score,
+        risk_level=auto_risk_level
+    )
+
+    st.markdown("### V12 Rapor Üretimi")
+
+    if not active_rules.get("pdf", False):
+        render_locked_feature("V12 PDF / Excel Export", active_plan)
+        return
+
+    if st.button("Excel Verisinden PDF + Excel Rapor Oluştur", type="primary"):
+        with st.spinner("V12 otomatik rapor hazırlanıyor..."):
+            consulting_report = generate_consulting_report(
+                sector=sector,
+                company_metrics=auto_company_metrics,
+                benchmark_result=auto_benchmark,
+                financial_result=auto_financial,
+                maturity=auto_maturity,
+                recommendations=auto_recommendations
+            )
+
+            pdf_file = create_enterprise_pdf(
+                company_name=company_name,
+                sector=sector,
+                score=auto_score,
+                maturity=auto_maturity,
+                company_metrics=auto_company_metrics,
+                benchmark_result=auto_benchmark,
+                financial_result=auto_financial,
+                recommendations=auto_recommendations,
+                consulting_report=consulting_report
+            )
+
+            excel_file = create_excel_report(
+                company_name=company_name,
+                sector=sector,
+                score=auto_score,
+                maturity=auto_maturity,
+                company_metrics=auto_company_metrics,
+                benchmark_result=auto_benchmark,
+                financial_result=auto_financial,
+                recommendations=auto_recommendations,
+                risk_score=auto_risk_score,
+                risk_level=auto_risk_level
+            )
+
+            project_id = save_project_to_supabase(
+                user_email=user_email,
+                company_name=company_name,
+                sector=sector,
+                score=auto_score,
+                risk_level=auto_risk_level,
+                financial_result=auto_financial
+            )
+
+            if project_id:
+                save_report_to_supabase(user_email, project_id, "pdf", os.path.basename(pdf_file), pdf_file)
+                save_report_to_supabase(user_email, project_id, "excel", os.path.basename(excel_file), excel_file)
+
+        st.success("V12 raporları oluşturuldu.")
+
+        with open(pdf_file, "rb") as file:
+            st.download_button(
+                "V12 Enterprise PDF İndir",
+                data=file,
+                file_name=f"OptiFlow_{company_name.replace(' ', '_')}_V12_Report.pdf",
+                mime="application/pdf"
+            )
+
+        with open(excel_file, "rb") as file:
+            st.download_button(
+                "V12 Excel Data İndir",
+                data=file,
+                file_name=os.path.basename(excel_file),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
 
 
@@ -1376,7 +1789,7 @@ if page == "Landing Page":
     st.markdown(
         """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V11</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V12</div>
     <div class="hero-subtitle">
         Operational Excellence Intelligence Platform with Plotly Executive Dashboards, KPI Diagnostics and Enterprise Reporting.
     </div>
@@ -1405,7 +1818,7 @@ if page == "Landing Page":
 st.markdown(
     """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V11</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V12</div>
     <div class="hero-subtitle">
         Commercial Operations Excellence Platform | Plotly Dashboard | Benchmark Intelligence | PDF & PPT Export
     </div>
@@ -1587,6 +2000,17 @@ elif page == "Analysis":
     st.markdown("### Yönetim İçin Öncelikli Aksiyonlar")
     for i, rec in enumerate(recommendations, start=1):
         st.markdown(f"**{i}.** {rec}")
+
+
+
+
+elif page == "Excel Upload AI":
+    render_v12_excel_upload_center(
+        company_name=company_name,
+        sector=sector,
+        active_plan=active_plan,
+        active_rules=active_rules
+    )
 
 
 elif page == "Benchmark Center":
