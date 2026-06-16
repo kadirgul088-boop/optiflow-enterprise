@@ -28,34 +28,60 @@ from modules.charts import (
 )
 
 
-# -------------------------------------------------------------------
-# FONT FIX
-# -------------------------------------------------------------------
-# Siyah kutu problemi genelde Helvetica'nin Turkce/Unicode karakterleri
-# tam desteklememesinden veya emoji/ikonlardan kaynaklanir.
-# Bu motor once Turkce destekleyen DejaVu fontunu zorlar.
-# Bulamazsa Helvetica'ya duser ama metin temizleme devam eder.
-# -------------------------------------------------------------------
+# ============================================================
+# FONT ENGINE - TURKISH CHARACTER FIX
+# ============================================================
+# Siyah kutu sorununun ana sebebi Helvetica fontunun Türkçe karakterleri
+# düzgün basmamasıdır. Bu dosya DejaVu Sans fontunu matplotlib üzerinden
+# zorla bulup PDF'e embed eder.
+# ============================================================
 
-FONT_NAME = "Helvetica"
+def _find_font_path():
+    candidates = []
 
-FONT_PATHS = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-    "/System/Library/Fonts/Supplemental/Arial.ttf",
-    "/Library/Fonts/Arial Unicode.ttf",
-    "/Library/Fonts/Arial.ttf"
-]
-
-for font_path in FONT_PATHS:
     try:
-        if os.path.exists(font_path):
-            pdfmetrics.registerFont(TTFont("OptiFlowFont", font_path))
-            FONT_NAME = "OptiFlowFont"
-            break
+        import matplotlib.font_manager as fm
+        candidates.append(fm.findfont("DejaVu Sans", fallback_to_default=True))
+        candidates.append(fm.findfont("DejaVu Sans Condensed", fallback_to_default=True))
     except Exception:
         pass
+
+    candidates.extend([
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
+        "/usr/local/lib/python3.11/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf",
+        "/usr/local/lib/python3.10/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf",
+        "/usr/local/lib/python3.9/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+        "/Library/Fonts/Arial.ttf"
+    ])
+
+    for path in candidates:
+        try:
+            if path and os.path.exists(path):
+                return path
+        except Exception:
+            pass
+
+    return None
+
+
+def _register_pdf_font():
+    font_path = _find_font_path()
+
+    if font_path:
+        try:
+            pdfmetrics.registerFont(TTFont("OptiFlowFont", font_path))
+            return "OptiFlowFont"
+        except Exception:
+            pass
+
+    return "Helvetica"
+
+
+FONT_NAME = _register_pdf_font()
 
 
 PRIMARY = colors.HexColor("#0f172a")
@@ -70,11 +96,10 @@ RED_BG = colors.HexColor("#fff1f2")
 BLUE_BG = colors.HexColor("#eff6ff")
 
 
-def _strip_bad_pdf_chars(value):
+def _clean_text(value):
     """
-    Turkce karakterleri korur.
-    Emoji, variation selector, zero width joiner, kontrol karakteri ve
-    ReportLab'in kutu yaptigi sembolleri temizler.
+    Türkçe karakterleri KORUR.
+    Sadece emoji / ikon / görünmez karakterleri temizler.
     """
     if value is None:
         return ""
@@ -82,13 +107,13 @@ def _strip_bad_pdf_chars(value):
     text = str(value)
 
     replacements = {
-        "🔴": "KRITIK",
-        "🟡": "DIKKAT",
-        "🟢": "IYI",
+        "🔴": "KRİTİK",
+        "🟡": "DİKKAT",
+        "🟢": "İYİ",
         "✅": "",
         "❌": "",
-        "⚠️": "DIKKAT:",
-        "⚠": "DIKKAT:",
+        "⚠️": "DİKKAT:",
+        "⚠": "DİKKAT:",
         "📊": "",
         "📈": "",
         "📉": "",
@@ -118,13 +143,13 @@ def _strip_bad_pdf_chars(value):
         "…": "...",
         "©": "(c)",
         "®": "(R)",
-        "™": "(TM)",
+        "™": "(TM)"
     }
 
     for old, new in replacements.items():
         text = text.replace(old, new)
 
-    # Emoji unicode araliklarini temizle
+    # Emoji unicode bloklarını temizle
     text = re.sub(r"[\U0001F300-\U0001FAFF]", "", text)
     text = re.sub(r"[\U00002700-\U000027BF]", "", text)
     text = re.sub(r"[\U00002600-\U000026FF]", "", text)
@@ -132,19 +157,18 @@ def _strip_bad_pdf_chars(value):
     cleaned = []
     for ch in text:
         code = ord(ch)
-        cat = unicodedata.category(ch)
+        category = unicodedata.category(ch)
 
-        # Variation selectors / zero-width
+        # variation selector / zero width
         if code in (0xFE0F, 0xFE0E, 0x200D, 0x200C, 0x200B):
             continue
 
-        # Control/private/unassigned chars
-        if cat in ("Cc", "Cs", "Co", "Cn"):
+        # kontrol / private / unassigned
+        if category in ("Cc", "Cs", "Co", "Cn"):
             if ch in "\n\r\t":
                 cleaned.append(ch)
             continue
 
-        # Keep normal letters, numbers, punctuation, Turkish chars
         cleaned.append(ch)
 
     text = "".join(cleaned)
@@ -156,12 +180,12 @@ def _strip_bad_pdf_chars(value):
 
 
 def _p(text, style):
-    safe = escape(_strip_bad_pdf_chars(text)).replace("\n", "<br/>")
+    safe = escape(_clean_text(text)).replace("\n", "<br/>")
     return Paragraph(safe, style)
 
 
-def _table_data(data):
-    return [[_strip_bad_pdf_chars(cell) for cell in row] for row in data]
+def _clean_table_data(data):
+    return [[_clean_text(cell) for cell in row] for row in data]
 
 
 def _safe_get(data, key, default=0):
@@ -196,7 +220,7 @@ def _fmt_pct(value):
 
 
 def _styled_table(data, header_color=PRIMARY, body_color=LIGHT_BG, col_widths=None):
-    table = Table(_table_data(data), colWidths=col_widths, repeatRows=1)
+    table = Table(_clean_table_data(data), colWidths=col_widths, repeatRows=1)
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), header_color),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -204,7 +228,7 @@ def _styled_table(data, header_color=PRIMARY, body_color=LIGHT_BG, col_widths=No
         ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
         ("FONTNAME", (0, 0), (-1, -1), FONT_NAME),
         ("FONTSIZE", (0, 0), (-1, -1), 8.2),
-        ("LEADING", (0, 0), (-1, -1), 10),
+        ("LEADING", (0, 0), (-1, -1), 10.2),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("PADDING", (0, 0), (-1, -1), 7),
     ]))
@@ -215,8 +239,8 @@ def add_footer(canvas, doc):
     canvas.saveState()
     canvas.setFont(FONT_NAME, 7)
     canvas.setFillColor(colors.HexColor("#64748b"))
-    canvas.drawString(1.35 * cm, 0.8 * cm, "OPTIFLOW ENTERPRISE REPORT | CONFIDENTIAL")
-    canvas.drawRightString(A4[0] - 1.35 * cm, 0.8 * cm, f"Page {doc.page}")
+    canvas.drawString(1.35 * cm, 0.8 * cm, "OptiFlow Enterprise - Yapay Zeka Destekli Operasyonel Mükemmellik Platformu")
+    canvas.drawRightString(A4[0] - 1.35 * cm, 0.8 * cm, f"Sayfa {doc.page}")
     canvas.restoreState()
 
 
@@ -343,16 +367,6 @@ def create_enterprise_pdf(
         textColor=SLATE
     )
 
-    cover_note = ParagraphStyle(
-        "cover_note",
-        parent=normal,
-        alignment=1,
-        fontName=FONT_NAME,
-        fontSize=9.4,
-        leading=14,
-        textColor=colors.HexColor("#111827")
-    )
-
     story = []
 
     # COVER
@@ -373,20 +387,19 @@ def create_enterprise_pdf(
     ))
     story.append(Spacer(1, 35))
 
-    cover_table = _styled_table([
+    story.append(_styled_table([
         ["CLIENT", company_name],
         ["INDUSTRY", sector],
         ["PREPARED BY", "OptiFlow Consulting"],
         ["REPORT DATE", str(date.today())],
         ["CLASSIFICATION", "CONFIDENTIAL"],
         ["REPORT TYPE", "Enterprise Assessment"]
-    ], header_color=PRIMARY, col_widths=[5 * cm, 11 * cm])
+    ], header_color=PRIMARY, col_widths=[5 * cm, 11 * cm]))
 
-    story.append(cover_table)
     story.append(Spacer(1, 26))
     story.append(_p(
         "This report provides an executive-level assessment of operational performance, process efficiency, financial impact, risk exposure and management priorities. It is designed to support data-driven decisions and identify measurable improvement opportunities.",
-        cover_note
+        normal
     ))
     story.append(Spacer(1, 14))
     story.append(_p("Prepared exclusively for executive management use.", small))
@@ -418,8 +431,7 @@ def create_enterprise_pdf(
 
     # 1 SUMMARY
     story.append(_p("1. Yönetici Özeti", h1))
-
-    summary_table = _styled_table([
+    story.append(_styled_table([
         ["Ana Gösterge", "Değer"],
         ["OptiFlow Score", f"{score}/100"],
         ["Operasyonel Olgunluk", maturity.get("Seviye", "-")],
@@ -430,11 +442,9 @@ def create_enterprise_pdf(
         ["ROI", _fmt_pct(roi)],
         ["Geri Dönüş Süresi", f"{payback} Ay"],
         ["Kurumsal Risk Skoru", f"{risk_score}/100 - {risk_level}"]
-    ], header_color=PRIMARY, col_widths=[7 * cm, 9 * cm])
+    ], header_color=PRIMARY, col_widths=[7 * cm, 9 * cm]))
 
-    story.append(summary_table)
     story.append(Spacer(1, 12))
-
     story.append(_p(
         f"{company_name} için gerçekleştirilen OptiFlow değerlendirmesi, firmanın operasyonel performansında ölçülebilir iyileştirme potansiyeli bulunduğunu göstermektedir. Bekleme oranı {_fmt_pct(wait_rate)}, OEE seviyesi {_fmt_pct(oee)}, hata oranı {_fmt_pct(defect_rate)} ve hat denge kaybı {_fmt_pct(line_balance_loss)} olarak değerlendirilmiştir.",
         normal
@@ -448,36 +458,30 @@ def create_enterprise_pdf(
         normal
     ))
 
-    executive_table = _styled_table([
+    story.append(Spacer(1, 8))
+    story.append(_styled_table([
         ["Öncelikli Yönetim Bulgusu", "Değerlendirme"],
         ["En kritik performans alanı", "Bekleme ve akış dengesi"],
         ["En yüksek finansal fırsat", _fmt_money(yearly_saving)],
         ["Risk seviyesi", risk_level],
         ["Önerilen yaklaşım", "30-60-90 gün kontrollü dönüşüm programı"],
         ["Yönetim odağı", "Hızlı kazanım + sürdürülebilir KPI sistemi"]
-    ], header_color=SECONDARY, body_color=BLUE_BG, col_widths=[6 * cm, 10 * cm])
-
-    story.append(Spacer(1, 8))
-    story.append(executive_table)
+    ], header_color=SECONDARY, body_color=BLUE_BG, col_widths=[6 * cm, 10 * cm]))
     story.append(PageBreak())
 
     # 2 DASHBOARD
     story.append(_p("2. Executive Dashboard", h1))
-
-    kpi_cards = _styled_table([
-        ["KPI", "Değer", "Durum"],
-        ["Bekleme Oranı", _fmt_pct(wait_rate), "KRITIK" if wait_rate > 20 else "DIKKAT" if wait_rate > 12 else "IYI"],
-        ["OEE", _fmt_pct(oee), "GUCLU" if oee >= 80 else "DIKKAT" if oee >= 65 else "KRITIK"],
-        ["Hata Oranı", _fmt_pct(defect_rate), "IYI" if defect_rate <= 3 else "DIKKAT" if defect_rate <= 7 else "KRITIK"],
-        ["Hat Denge Kaybı", _fmt_pct(line_balance_loss), "KRITIK" if line_balance_loss > 15 else "DIKKAT" if line_balance_loss > 8 else "IYI"],
-        ["ROI", _fmt_pct(roi), "GUCLU" if _to_float(roi) >= 150 else "DIKKAT" if _to_float(roi) >= 75 else "ZAYIF"]
-    ], header_color=PRIMARY, body_color=LIGHT_BG, col_widths=[5 * cm, 4 * cm, 7 * cm])
-
     story.append(_p("Executive KPI Summary", h2))
-    story.append(kpi_cards)
+    story.append(_styled_table([
+        ["KPI", "Değer", "Durum"],
+        ["Bekleme Oranı", _fmt_pct(wait_rate), "KRİTİK" if wait_rate > 20 else "DİKKAT" if wait_rate > 12 else "İYİ"],
+        ["OEE", _fmt_pct(oee), "GÜÇLÜ" if oee >= 80 else "DİKKAT" if oee >= 65 else "KRİTİK"],
+        ["Hata Oranı", _fmt_pct(defect_rate), "İYİ" if defect_rate <= 3 else "DİKKAT" if defect_rate <= 7 else "KRİTİK"],
+        ["Hat Denge Kaybı", _fmt_pct(line_balance_loss), "KRİTİK" if line_balance_loss > 15 else "DİKKAT" if line_balance_loss > 8 else "İYİ"],
+        ["ROI", _fmt_pct(roi), "GÜÇLÜ" if _to_float(roi) >= 150 else "DİKKAT" if _to_float(roi) >= 75 else "ZAYIF"]
+    ], header_color=PRIMARY, body_color=LIGHT_BG, col_widths=[5 * cm, 4 * cm, 7 * cm]))
     story.append(Spacer(1, 10))
-
-    dashboard_data = [
+    story.append(_styled_table([
         ["KPI", "Değer", "Yönetim Yorumu"],
         ["OptiFlow Score", f"{score}/100", "Genel operasyonel olgunluk göstergesi"],
         ["Bekleme Oranı", _fmt_pct(wait_rate), "Süreçler arası akış kaybının ana göstergesi"],
@@ -487,13 +491,7 @@ def create_enterprise_pdf(
         ["Yıllık Tasarruf Potansiyeli", _fmt_money(yearly_saving), "İyileştirme projelerinin finansal etkisi"],
         ["Kurumsal Risk Skoru", f"{risk_score}/100", "Operasyonel riskin birleşik görünümü"],
         ["Geri Dönüş Süresi", f"{payback} ay", "İyileştirme programının amortisman süresi"]
-    ]
-
-    story.append(_styled_table(
-        dashboard_data,
-        header_color=SLATE,
-        col_widths=[4.8 * cm, 4.2 * cm, 7 * cm]
-    ))
+    ], header_color=SLATE, col_widths=[4.8 * cm, 4.2 * cm, 7 * cm]))
     story.append(Spacer(1, 10))
     story.append(_p(
         "Dashboard göstergeleri, yönetimin ilk bakışta operasyonun nerede değer kaybettiğini ve hangi iyileştirmelerin finansal dönüş sağlayabileceğini görmesini sağlar. Burada öne çıkan ana bulgu, bekleme ve akış kaynaklı kayıpların hem üretkenliği hem de finansal sonuçları sınırlamasıdır.",
@@ -505,15 +503,12 @@ def create_enterprise_pdf(
 
     # 3 SCORE
     story.append(_p("3. OptiFlow Score ve Operasyonel Olgunluk", h1))
-
-    score_table = _styled_table([
+    story.append(_styled_table([
         ["Gösterge", "Değer"],
         ["OptiFlow Score", f"{score}/100"],
         ["Operasyonel Olgunluk", maturity.get("Seviye", "-")],
         ["Olgunluk Yorumu", maturity.get("Yorum", "-")]
-    ], header_color=PRIMARY, col_widths=[5 * cm, 11 * cm])
-
-    story.append(score_table)
+    ], header_color=PRIMARY, col_widths=[5 * cm, 11 * cm]))
     story.append(Spacer(1, 10))
     story.append(_p(
         "OptiFlow Score; verimlilik, kalite, kapasite, akış ve ekipman etkinliği boyutlarını birlikte değerlendirir. Skorun amacı, yalnızca mevcut performansı ölçmek değil; hangi alanların yönetim önceliği olması gerektiğini de ortaya koymaktır.",
@@ -526,14 +521,13 @@ def create_enterprise_pdf(
 
     # 4 OPERATIONS
     story.append(_p("4. Operasyonel Performans Analizi", h1))
-    perf_table = _styled_table([
+    story.append(_styled_table([
         ["Metrik", "Firma Değeri", "Analitik Yorum"],
         ["Bekleme Oranı", _fmt_pct(wait_rate), "Yüksek değer süreçler arası senkronizasyon kaybına işaret eder."],
         ["OEE", _fmt_pct(oee), "Kullanılabilirlik, performans ve kalite bileşenlerinin birlikte yönetilmesi gerekir."],
         ["Hata Oranı", _fmt_pct(defect_rate), "Kalite kaybı doğrudan fire ve yeniden işleme maliyetine dönüşür."],
         ["Hat Denge Kaybı", _fmt_pct(line_balance_loss), "İş yükü dengesizliği darboğaz ve kapasite kaybı yaratır."]
-    ], header_color=SLATE, col_widths=[4.2 * cm, 4 * cm, 7.8 * cm])
-    story.append(perf_table)
+    ], header_color=SLATE, col_widths=[4.2 * cm, 4 * cm, 7.8 * cm]))
     story.append(Spacer(1, 8))
     story.append(_p(
         "Operasyonel performans analizinde en kritik bakış açısı, metriklerin ayrı ayrı değil birbirleriyle etkileşimli değerlendirilmesidir. Bekleme oranı yüksekken hat denge kaybının da yüksek olması, sistemin yalnızca belirli istasyonlarda değil tüm akışta verimlilik kaybettiğini gösterir.",
@@ -555,7 +549,6 @@ def create_enterprise_pdf(
                 ])
     except Exception:
         pass
-
     if len(bench_data) == 1:
         bench_data.extend([
             ["Bekleme Oranı", str(wait_rate), "-"],
@@ -563,7 +556,6 @@ def create_enterprise_pdf(
             ["Hata Oranı", str(defect_rate), "-"],
             ["Hat Denge Kaybı", str(line_balance_loss), "-"]
         ])
-
     story.append(_styled_table(bench_data, header_color=SLATE, col_widths=[6 * cm, 5 * cm, 5 * cm]))
     story.append(Spacer(1, 8))
     story.append(Image(benchmark_chart, width=15.5 * cm, height=8.2 * cm))
@@ -584,7 +576,6 @@ def create_enterprise_pdf(
                 fin_rows.append([str(key), str(value)])
     except Exception:
         fin_rows.append(["Finansal veri", "-"])
-
     story.append(_styled_table(fin_rows, header_color=GREEN, body_color=GREEN_BG, col_widths=[8 * cm, 8 * cm]))
     story.append(Spacer(1, 8))
     story.append(Image(financial_chart, width=15.5 * cm, height=8 * cm))
@@ -596,14 +587,13 @@ def create_enterprise_pdf(
 
     # 7 ROI
     story.append(_p("7. ROI ve Yatırım Geri Dönüş Analizi", h1))
-    roi_table = _styled_table([
+    story.append(_styled_table([
         ["Gösterge", "Sonuç", "Yönetim Anlamı"],
         ["Toplam Operasyonel Kayıp", _fmt_money(total_loss), "Mevcut sistemin yıllık tahmini kayıp büyüklüğü"],
         ["İyileştirme Potansiyeli", _fmt_money(yearly_saving), "Hedeflenen iyileştirme programının yıllık kazanım alanı"],
         ["ROI", _fmt_pct(roi), "Yatırımın finansal geri dönüş oranı"],
         ["Geri Dönüş Süresi", f"{payback} ay", "Yatırımın kendini amorti etme süresi"]
-    ], header_color=GREEN, body_color=GREEN_BG, col_widths=[5.5 * cm, 4 * cm, 6.5 * cm])
-    story.append(roi_table)
+    ], header_color=GREEN, body_color=GREEN_BG, col_widths=[5.5 * cm, 4 * cm, 6.5 * cm]))
     story.append(Spacer(1, 8))
     story.append(_p(
         f"Mevcut analiz, {_fmt_money(yearly_saving)} seviyesindeki yıllık iyileştirme potansiyelinin işletme lehine doğrudan finansal değer yaratabileceğini göstermektedir. Bu kazanım yalnızca maliyet düşüşü değil, aynı zamanda ek kapasite, daha iyi teslimat performansı ve daha düşük operasyonel dalgalanma anlamına gelir.",
@@ -616,14 +606,13 @@ def create_enterprise_pdf(
 
     # 8 RISK
     story.append(_p("8. Risk Yönetimi ve Risk Matrisi", h1))
-    risk_table = _styled_table([
+    story.append(_styled_table([
         ["Risk Alanı", "Risk Göstergesi", "Yönetim Yorumu"],
         ["Teslimat Riski", _fmt_pct(wait_rate), "Bekleme ve akış kaybı termin performansını etkileyebilir."],
         ["Kalite Riski", _fmt_pct(defect_rate), "Hata oranı maliyet ve müşteri memnuniyeti riski yaratır."],
         ["Kapasite Riski", _fmt_pct(line_balance_loss), "Dengesiz hat kullanımı kaynak verimliliğini düşürür."],
         ["Finansal Risk", _fmt_money(total_loss), "Operasyonel kayıpların parasal etkisi yönetim gündemine alınmalıdır."]
-    ], header_color=RED, body_color=RED_BG, col_widths=[4.2 * cm, 4 * cm, 7.8 * cm])
-    story.append(risk_table)
+    ], header_color=RED, body_color=RED_BG, col_widths=[4.2 * cm, 4 * cm, 7.8 * cm]))
     story.append(Spacer(1, 8))
     story.append(Image(risk_chart, width=13.5 * cm, height=8.5 * cm))
     story.append(_p(
@@ -634,15 +623,14 @@ def create_enterprise_pdf(
 
     # 9 ROOT CAUSE
     story.append(_p("9. Kök Neden Analizi (5M)", h1))
-    root_table = _styled_table([
+    story.append(_styled_table([
         ["5M Alanı", "Olası Kök Neden", "Önerilen Müdahale"],
         ["İnsan", "Operatör dağılımı, eğitim seviyesi ve iş yükü dengesizliği", "Çoklu beceri matrisi, iş yükü dengeleme ve vardiya bazlı performans takibi"],
         ["Makine", "Plansız duruşlar, kapasite kısıtları ve bakım eksikleri", "OEE bileşen takibi, önleyici bakım planı ve duruş neden analizi"],
         ["Metot", "Standart iş eksikliği ve süreç sırası farklılıkları", "Standart iş dokümanı, iş etüdü ve hat dengeleme çalışması"],
         ["Malzeme", "Malzeme akışı gecikmeleri ve ara stok yönetimi", "Malzeme besleme planı, Kanban ve süreç içi stok kontrolü"],
         ["Ölçüm", "KPI sisteminin yetersizliği ve veri doğruluğu riski", "Günlük KPI panosu, haftalık performans toplantısı ve dijital veri doğrulama"]
-    ], header_color=PRIMARY, col_widths=[3 * cm, 6.5 * cm, 6.5 * cm])
-    story.append(root_table)
+    ], header_color=PRIMARY, col_widths=[3 * cm, 6.5 * cm, 6.5 * cm]))
     story.append(Spacer(1, 8))
     story.append(_p(
         "5M analizi, görünen performans problemlerinin arkasındaki sistematik nedenleri ortaya koymak için kullanılır. Bu değerlendirme, yalnızca semptomları değil, tekrar eden kayıp kaynaklarını yönetmeyi hedefler.",
@@ -652,15 +640,14 @@ def create_enterprise_pdf(
 
     # 10 DECISION MATRIX
     story.append(_p("10. Yönetim Karar Matrisi", h1))
-    decision_final = _styled_table([
+    story.append(_styled_table([
         ["Karar Alanı", "Yönetim Tavsiyesi"],
         ["Kısa Vadeli Öncelik", "Bekleme sürelerinin azaltılması ve darboğaz noktalarının kontrol altına alınması"],
         ["Orta Vadeli Öncelik", "Hat dengeleme, OEE takibi ve standart iş uygulamalarının yaygınlaştırılması"],
         ["Finansal Öncelik", "En yüksek tasarruf potansiyeli taşıyan süreçlere yatırım yapılması"],
         ["Risk Önceliği", "Teslimat, kalite ve kapasite risklerinin haftalık KPI sistemi ile izlenmesi"],
         ["Stratejik Tavsiye", "OptiFlow çıktılarının aylık yönetim toplantılarında karar destek aracı olarak kullanılması"]
-    ], header_color=PRIMARY, col_widths=[5 * cm, 11 * cm])
-    story.append(decision_final)
+    ], header_color=PRIMARY, col_widths=[5 * cm, 11 * cm]))
     story.append(Spacer(1, 14))
     story.append(_p(
         "OptiFlow değerlendirmesine göre işletmenin kısa vadede en yüksek kazanımı, mevcut kaynakları daha etkin kullanarak bekleme ve akış kayıplarını azaltmasıyla elde etmesi beklenmektedir. Bu yaklaşım, yüksek maliyetli yatırım kararlarından önce operasyonel disiplinin güçlendirilmesini sağlar.",
@@ -673,13 +660,12 @@ def create_enterprise_pdf(
 
     # 11 ROADMAP
     story.append(_p("11. 30-60-90 Gün Yol Haritası", h1))
-    roadmap = _styled_table([
+    story.append(_styled_table([
         ["Dönem", "Odak Alanı", "Ana Faaliyetler", "Beklenen Çıktı"],
         ["0-30 Gün", "Veri doğrulama ve hızlı teşhis", "Süreç gözlemi, KPI baz çizgisi, darboğaz doğrulama", "Hızlı kazanım listesi ve ölçüm altyapısı"],
         ["30-60 Gün", "Akış ve kapasite iyileştirme", "Hat dengeleme, bekleme azaltma, standart iş", "Daha dengeli akış ve ölçülebilir kapasite kazanımı"],
         ["60-90 Gün", "Sürdürülebilir yönetim sistemi", "KPI toplantı ritmi, sorumluluk matrisi, performans panosu", "Sürekli iyileştirme sistemi ve yönetim kontrolü"]
-    ], header_color=PRIMARY, col_widths=[3 * cm, 4 * cm, 5 * cm, 4 * cm])
-    story.append(roadmap)
+    ], header_color=PRIMARY, col_widths=[3 * cm, 4 * cm, 5 * cm, 4 * cm]))
     story.append(Spacer(1, 8))
     story.append(_p(
         "Yol haritası, iyileştirme çalışmalarını kısa vadeli hızlı kazanımlar ve orta vadeli sürdürülebilir sistem tasarımı olarak iki eksende ele alır. İlk 30 gün veri doğruluğu ve önceliklendirme, sonraki 60 gün ise uygulama ve kalıcı yönetim ritmi için kritik dönemdir.",
@@ -688,9 +674,8 @@ def create_enterprise_pdf(
 
     # 12 CONSULTING
     story.append(_p("12. OptiFlow Danışmanlık Değerlendirmesi", h1))
-    clean_report = _strip_bad_pdf_chars(str(consulting_report).replace("**", "").replace("#", ""))
+    clean_report = _clean_text(str(consulting_report).replace("**", "").replace("#", ""))
     paragraphs = [p.strip() for p in clean_report.split("\n") if p.strip()]
-
     for paragraph in paragraphs:
         if len(paragraph) < 90 and any(char.isdigit() for char in paragraph[:3]):
             story.append(_p(paragraph, h2))
@@ -714,10 +699,6 @@ def create_enterprise_pdf(
         normal
     ))
 
-    doc.build(
-        story,
-        onFirstPage=add_footer,
-        onLaterPages=add_footer
-    )
+    doc.build(story, onFirstPage=add_footer, onLaterPages=add_footer)
 
     return pdf_file
