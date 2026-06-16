@@ -57,11 +57,11 @@ BLUE_BG = colors.HexColor("#eff6ff")
 
 def _clean_text(value):
     """
-    ReportLab bazı emoji, ikon ve özel sembolleri PDF'te siyah kutu olarak gösterebilir.
-    Bu fonksiyon Türkçe karakterleri korur; emoji/ikonları ve riskli XML karakterlerini temizler.
+    PDF'te siyah kutu olusmasini engellemek icin metni guvenli ASCII karakterlere cevirir.
+    Turkce karakterler okunabilir karsiliklarina cevrilir, emoji/ikon/ozel semboller kaldirilir.
     """
-    import unicodedata
     from xml.sax.saxutils import escape
+    import re
 
     if value is None:
         return ""
@@ -69,6 +69,13 @@ def _clean_text(value):
     text = str(value)
 
     replacements = {
+        "ç": "c", "Ç": "C",
+        "ğ": "g", "Ğ": "G",
+        "ı": "i", "İ": "I",
+        "ö": "o", "Ö": "O",
+        "ş": "s", "Ş": "S",
+        "ü": "u", "Ü": "U",
+
         "🔴": "KRITIK",
         "🟡": "DIKKAT",
         "🟢": "IYI",
@@ -85,35 +92,47 @@ def _clean_text(value):
         "🧠": "",
         "📄": "",
         "📌": "",
+
         "•": "-",
+        "·": "-",
         "–": "-",
         "—": "-",
+        "−": "-",
+        "→": "->",
+        "←": "<-",
+        "↑": "^",
+        "↓": "v",
         "“": '"',
         "”": '"',
         "’": "'",
         "‘": "'",
+        "…": "...",
         "©": "(c)",
         "®": "(R)",
         "™": "(TM)",
+        "€": "EUR",
+        "₺": "TL"
     }
 
     for old, new in replacements.items():
         text = text.replace(old, new)
 
-    cleaned = []
+    safe_chars = []
     for ch in text:
-        cat = unicodedata.category(ch)
+        code = ord(ch)
+        if ch in "\\n\\r\\t":
+            safe_chars.append(ch)
+        elif 32 <= code <= 126:
+            safe_chars.append(ch)
+        else:
+            safe_chars.append(" ")
 
-        # Turkish letters are normal letters and are preserved.
-        # Remove emoji/symbol categories that often render as black boxes in PDF.
-        if cat in {"So", "Cs", "Co", "Cn"}:
-            continue
+    text = "".join(safe_chars)
+    text = re.sub(r"[ \\t]+", " ", text)
+    text = text.strip()
 
-        cleaned.append(ch)
-
-    text = "".join(cleaned)
     text = escape(text)
-    text = text.replace("\n", "<br/>")
+    text = text.replace("\\n", "<br/>")
 
     return text
 
