@@ -34,7 +34,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="OptiFlow Enterprise SaaS V14",
+    page_title="OptiFlow Enterprise SaaS V16",
     page_icon="📊",
     layout="wide"
 )
@@ -1777,6 +1777,351 @@ def render_admin_dashboard(user_email):
 
 
 
+
+
+# ============================================================
+# V16 AI EXECUTIVE CONSULTANT
+# ============================================================
+
+def build_executive_consultant_context(
+    company_name,
+    sector,
+    score,
+    maturity,
+    company_metrics,
+    benchmark_result,
+    financial_result,
+    recommendations,
+    risk_score,
+    risk_level
+):
+    return f"""
+Company: {company_name}
+Sector: {sector}
+
+OptiFlow Score: {score}/100
+Maturity Level: {maturity.get("Seviye", "-")}
+Maturity Comment: {maturity.get("Yorum", "-")}
+
+Operational KPIs:
+- Wait Rate: {company_metrics.get("wait_rate", 0)}%
+- OEE: {company_metrics.get("oee", 0)}%
+- Defect Rate: {company_metrics.get("defect_rate", 0)}%
+- Line Balance Loss: {company_metrics.get("line_balance_loss", 0)}%
+
+Risk:
+- Risk Score: {risk_score}/100
+- Risk Level: {risk_level}
+
+Financial:
+- Total Operational Loss: {financial_result.get("Toplam Operasyonel Kayıp", 0)} TL
+- Improvement Potential: {financial_result.get("İyileştirme Potansiyeli", 0)} TL
+- Estimated Annual Saving: {financial_result.get("Tahmini Yıllık Tasarruf", 0)} TL
+- ROI: {financial_result.get("ROI (%)", 0)}%
+- Payback Period: {financial_result.get("Geri Dönüş Süresi (Ay)", 0)} months
+
+Benchmark:
+{benchmark_result}
+
+Recommendations:
+{chr(10).join([f"- {rec}" for rec in recommendations])}
+"""
+
+
+def generate_executive_consultant_output(
+    mode,
+    company_name,
+    sector,
+    score,
+    maturity,
+    company_metrics,
+    benchmark_result,
+    financial_result,
+    recommendations,
+    risk_score,
+    risk_level
+):
+    context = build_executive_consultant_context(
+        company_name=company_name,
+        sector=sector,
+        score=score,
+        maturity=maturity,
+        company_metrics=company_metrics,
+        benchmark_result=benchmark_result,
+        financial_result=financial_result,
+        recommendations=recommendations,
+        risk_score=risk_score,
+        risk_level=risk_level
+    )
+
+    mode_prompts = {
+        "CEO Summary": """
+Sen üst düzey bir yönetim danışmanısın. CEO'ya sunulacak 1 sayfalık yönetici özeti üret.
+Odak: stratejik öncelikler, risk, finansal fırsat, hızlı kazanımlar, karar önerisi.
+""",
+        "COO Operations Brief": """
+Sen operasyon direktörüne danışmanlık yapan kıdemli operasyonel mükemmellik uzmanısın.
+Odak: bekleme, OEE, hat dengeleme, darboğaz, kalite, standart iş, KPI yönetim ritmi.
+""",
+        "CFO Financial Brief": """
+Sen CFO'ya rapor hazırlayan finansal etki danışmanısın.
+Odak: kayıp, tasarruf potansiyeli, ROI, geri dönüş süresi, yatırım önceliği, finansal risk.
+""",
+        "90-Day Transformation Plan": """
+Sen dönüşüm programı yöneten senior consultant'sın.
+30-60-90 gün için ayrıntılı ama uygulanabilir aksiyon planı hazırla.
+Her faz için hedef, faaliyet, sorumlu ekip, beklenen çıktı, KPI yaz.
+""",
+        "Board Presentation Notes": """
+Sen yönetim kurulu sunumu hazırlıyorsun.
+Kısa, güçlü, ikna edici ve sayısal veri temelli board meeting konuşma notları üret.
+""",
+        "Sales Proposal": """
+Sen danışmanlık şirketi için müşteri teklif metni hazırlıyorsun.
+OptiFlow analizine göre hizmet kapsamı, proje yaklaşımı, beklenen değer ve sonraki adımları yaz.
+"""
+    }
+
+    instruction = mode_prompts.get(mode, mode_prompts["CEO Summary"])
+
+    prompt = f"""
+{instruction}
+
+Aşağıdaki OptiFlow analiz verilerini kullan:
+
+{context}
+
+Çıktıyı Türkçe yaz.
+Profesyonel yönetim danışmanlığı dili kullan.
+Gereksiz uzun yazma ama somut ve sayısal ol.
+Başlıklar net olsun.
+Cümleler satışa ve yönetime uygun olsun.
+
+Format:
+1. Yönetici Özeti
+2. Kritik Bulgular
+3. Finansal Etki
+4. Risk ve Önceliklendirme
+5. İlk 3 Aksiyon
+6. 30-60-90 Gün Yol Haritası
+7. Yönetim Kararı Önerisi
+"""
+
+    try:
+        # Mevcut ai_copilot modülünü kullanmak yerine doğrudan OpenAI fonksiyonuna uygun soru soruyoruz.
+        answer = ask_real_ai_copilot(
+            question=prompt,
+            company_name=company_name,
+            sector=sector,
+            score=score,
+            maturity=maturity,
+            company_metrics=company_metrics,
+            financial_result=financial_result,
+            recommendations=recommendations,
+            risk_score=risk_score,
+            risk_level=risk_level
+        )
+        return answer
+
+    except Exception as exc:
+        return f"AI Executive Consultant çıktısı üretilemedi: {exc}"
+
+
+def create_executive_consultant_docx(company_name, mode, content):
+    from docx import Document
+    from docx.shared import Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    safe_company = str(company_name).replace(" ", "_").replace("/", "_")
+    file_name = os.path.join(EXPORT_DIR, f"OptiFlow_{safe_company}_{mode.replace(' ', '_')}.docx")
+
+    doc = Document()
+    title = doc.add_heading("OptiFlow Executive Consultant", level=0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    subtitle = doc.add_paragraph(f"{company_name} | {mode}")
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    doc.add_paragraph("")
+
+    for line in str(content).split("\n"):
+        clean = line.strip()
+        if not clean:
+            doc.add_paragraph("")
+            continue
+
+        if clean[0:2].replace(".", "").isdigit() or clean.endswith(":"):
+            doc.add_heading(clean, level=2)
+        else:
+            p = doc.add_paragraph(clean)
+            for run in p.runs:
+                run.font.size = Pt(10.5)
+
+    doc.save(file_name)
+    return file_name
+
+
+def create_executive_consultant_txt(company_name, mode, content):
+    safe_company = str(company_name).replace(" ", "_").replace("/", "_")
+    file_name = os.path.join(EXPORT_DIR, f"OptiFlow_{safe_company}_{mode.replace(' ', '_')}.txt")
+
+    with open(file_name, "w", encoding="utf-8") as file:
+        file.write(str(content))
+
+    return file_name
+
+
+def render_ai_executive_consultant(
+    company_name,
+    sector,
+    score,
+    maturity,
+    company_metrics,
+    benchmark_result,
+    financial_result,
+    recommendations,
+    risk_score,
+    risk_level,
+    active_plan,
+    active_rules
+):
+    st.markdown("## V16 AI Executive Consultant")
+    st.caption("CEO, COO, CFO ve yönetim kurulu seviyesinde profesyonel danışmanlık çıktıları üretir.")
+
+    if not active_rules.get("ai", False):
+        render_locked_feature("AI Executive Consultant", active_plan)
+        return
+
+    mode = st.selectbox(
+        "Danışmanlık çıktısı seç",
+        [
+            "CEO Summary",
+            "COO Operations Brief",
+            "CFO Financial Brief",
+            "90-Day Transformation Plan",
+            "Board Presentation Notes",
+            "Sales Proposal"
+        ]
+    )
+
+    st.markdown("### Analiz Özeti")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("OptiFlow Score", f"{score}/100")
+    c2.metric("Risk", risk_level)
+    c3.metric("Yıllık Tasarruf", money_fmt(financial_result.get("Tahmini Yıllık Tasarruf", 0)))
+    c4.metric("ROI", pct_fmt(financial_result.get("ROI (%)", 0)))
+
+    with st.expander("AI Context Verisi"):
+        st.text(
+            build_executive_consultant_context(
+                company_name,
+                sector,
+                score,
+                maturity,
+                company_metrics,
+                benchmark_result,
+                financial_result,
+                recommendations,
+                risk_score,
+                risk_level
+            )
+        )
+
+    if "v16_consultant_output" not in st.session_state:
+        st.session_state.v16_consultant_output = ""
+
+    if st.button("Executive Consultant Çıktısı Üret", type="primary"):
+        with st.spinner("OptiFlow AI Executive Consultant hazırlanıyor..."):
+            st.session_state.v16_consultant_output = generate_executive_consultant_output(
+                mode=mode,
+                company_name=company_name,
+                sector=sector,
+                score=score,
+                maturity=maturity,
+                company_metrics=company_metrics,
+                benchmark_result=benchmark_result,
+                financial_result=financial_result,
+                recommendations=recommendations,
+                risk_score=risk_score,
+                risk_level=risk_level
+            )
+
+    if st.session_state.v16_consultant_output:
+        st.markdown("### Executive Consultant Output")
+        st.markdown(
+            f"""
+            <div style="padding:24px;border-radius:18px;background:#f8fafc;border-left:6px solid #2563eb;">
+            {st.session_state.v16_consultant_output.replace(chr(10), '<br>')}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        docx_file = create_executive_consultant_docx(
+            company_name=company_name,
+            mode=mode,
+            content=st.session_state.v16_consultant_output
+        )
+
+        txt_file = create_executive_consultant_txt(
+            company_name=company_name,
+            mode=mode,
+            content=st.session_state.v16_consultant_output
+        )
+
+        col_download1, col_download2, col_mail = st.columns(3)
+
+        with col_download1:
+            with open(docx_file, "rb") as file:
+                st.download_button(
+                    "Executive Consultant DOCX İndir",
+                    data=file,
+                    file_name=os.path.basename(docx_file),
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+
+        with col_download2:
+            with open(txt_file, "rb") as file:
+                st.download_button(
+                    "Executive Consultant TXT İndir",
+                    data=file,
+                    file_name=os.path.basename(txt_file),
+                    mime="text/plain"
+                )
+
+        with col_mail:
+            send_to = st.text_input("Mail alıcısı", value=user_email or "", key="v16_mail_to")
+            if st.button("Executive Output Mail Gönder"):
+                ok, msg = send_email_with_attachments(
+                    to_email=send_to,
+                    subject=f"OptiFlow Executive Consultant - {company_name}",
+                    body=f"""Merhaba,
+
+{company_name} için hazırlanan OptiFlow Executive Consultant çıktısı ekte yer almaktadır.
+
+Çıktı türü: {mode}
+
+Saygılarımızla,
+OptiFlow Enterprise""",
+                    attachment_paths=[docx_file, txt_file]
+                )
+
+                save_email_log(
+                    user_email=user_email,
+                    to_email=send_to,
+                    subject=f"OptiFlow Executive Consultant - {company_name}",
+                    status="success" if ok else "failed",
+                    message=msg,
+                    company_name=company_name
+                )
+
+                if ok:
+                    st.success("Executive Consultant çıktısı e-posta ile gönderildi.")
+                else:
+                    st.error(msg)
+
+
+
 # ============================================================
 # V14 REPORT DELIVERY CENTER + GMAIL SMTP
 # ============================================================
@@ -2364,7 +2709,7 @@ if page == "Landing Page":
     st.markdown(
         """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V14</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V16</div>
     <div class="hero-subtitle">
         Operational Excellence Intelligence Platform with Plotly Executive Dashboards, KPI Diagnostics and Enterprise Reporting.
     </div>
@@ -2393,7 +2738,7 @@ if page == "Landing Page":
 st.markdown(
     """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V14</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V16</div>
     <div class="hero-subtitle">
         Commercial Operations Excellence Platform | Plotly Dashboard | Benchmark Intelligence | PDF & PPT Export
     </div>
@@ -2544,6 +2889,25 @@ elif page == "AI Copilot":
             risk_score=risk_score,
             risk_level=risk_level
         )
+
+
+
+
+elif page == "AI Executive Consultant":
+    render_ai_executive_consultant(
+        company_name=company_name,
+        sector=sector,
+        score=score,
+        maturity=maturity,
+        company_metrics=company_metrics,
+        benchmark_result=benchmark_result,
+        financial_result=financial_result,
+        recommendations=recommendations,
+        risk_score=risk_score,
+        risk_level=risk_level,
+        active_plan=active_plan,
+        active_rules=active_rules
+    )
 
 
 elif page == "Analysis":
