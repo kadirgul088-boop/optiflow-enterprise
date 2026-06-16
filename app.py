@@ -34,7 +34,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="OptiFlow Enterprise SaaS V19",
+    page_title="OptiFlow Consulting",
     page_icon="📊",
     layout="wide"
 )
@@ -736,63 +736,37 @@ def render_public_landing():
     st.markdown(
         """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS</div>
+    <div class="hero-title">OptiFlow Consulting</div>
     <div class="hero-subtitle">
-        AI-powered Operational Excellence Platform for KPI diagnostics, financial impact analysis and executive reporting.
+        Endüstri mühendisliği, operasyonel mükemmellik ve veri temelli yönetim raporlaması için profesyonel danışmanlık platformu.
     </div>
-    <span class="hero-badge">AI Consulting</span>
-    <span class="hero-badge">PDF / PPT / Excel Reports</span>
-    <span class="hero-badge">Benchmark Intelligence</span>
-    <span class="hero-badge">Client Portal</span>
+    <span class="hero-badge">Operasyonel Verimlilik</span>
+    <span class="hero-badge">OEE & KPI Yönetimi</span>
+    <span class="hero-badge">Finansal Etki Analizi</span>
+    <span class="hero-badge">Yönetim Raporlama</span>
 </div>
         """,
         unsafe_allow_html=True
     )
 
-    st.markdown("## Choose your access")
+    st.markdown("## Platform Erişimi")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2 = st.columns(2)
 
-    plans = [
-        ("Demo", "Free Demo", "1 sample analysis", "No exports", "No AI"),
-        ("Starter", "$49 / month", "10 analyses", "PDF + Excel", "No PPT / AI"),
-        ("Professional", "$149 / month", "100 analyses", "PDF + PPT + Excel", "AI Copilot"),
-        ("Enterprise", "Custom", "Unlimited", "Team support", "Custom deployment")
-    ]
-
-    for col, plan in zip([col1, col2, col3, col4], plans):
-        with col:
-            st.markdown(
-                f"""
-                <div style="padding:22px;border:1px solid #e2e8f0;border-radius:18px;background:white;min-height:235px;">
-                    <h3>{plan[0]}</h3>
-                    <h2>{plan[1]}</h2>
-                    <p>{plan[2]}</p>
-                    <p>{plan[3]}</p>
-                    <p>{plan[4]}</p>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-    st.markdown("---")
-
-    col_login, col_demo = st.columns(2)
-
-    with col_login:
-        st.markdown("### Customer Login")
-        st.write("Paid users and trial customers can sign in with Google.")
-        if st.button("Sign in with Google", type="primary"):
-            st.login()
-
-    with col_demo:
-        st.markdown("### Try Demo")
-        st.write("Use the limited demo mode without exports and without AI Copilot.")
-        if st.button("Continue with Demo"):
+    with col1:
+        st.markdown("### Demo Sürüm")
+        st.write("Örnek veri ile sınırlı demo analizi deneyin. Rapor indirme ve gelişmiş modüller demo sürümde kapalıdır.")
+        if st.button("Demo Sürümü Aç", type="secondary"):
             st.session_state.demo_mode = True
             st.rerun()
 
-    st.info("Payments are controlled by subscription plan records. Users without an active plan stay in Demo mode.")
+    with col2:
+        st.markdown("### Müşteri Girişi")
+        st.write("Kayıtlı müşteriler Google hesabı ile giriş yaparak analiz, rapor ve müşteri portalına erişebilir.")
+        if st.button("Müşteri Girişi", type="primary"):
+            st.login()
+
+    st.info("Tam platform erişimi için üyelik gerekir. Demo sürüm yalnızca örnek kullanım içindir.")
 
 
 def render_user_bar(user_email, plan, rules, used, limit):
@@ -814,11 +788,11 @@ def render_user_bar(user_email, plan, rules, used, limit):
     st.sidebar.markdown(f"**Usage:** {used}/{limit if limit < 999999 else 'Unlimited'} analyses")
 
     if plan == "demo":
-        st.sidebar.warning("Exports and AI Copilot are locked in Demo.")
+        st.sidebar.warning("Exports and Danışman Asistanı are locked in Demo.")
     elif plan == "starter":
         st.sidebar.info("Starter: PDF + Excel enabled.")
     elif plan == "professional":
-        st.sidebar.success("Professional: Full reporting + AI enabled.")
+        st.sidebar.success("Professional: Full reporting + enabled.")
     elif plan == "enterprise":
         st.sidebar.success("Enterprise: Full access enabled.")
 
@@ -938,7 +912,7 @@ def create_excel_report(
     write_table(
         ws,
         1,
-        "OptiFlow Enterprise Dashboard",
+        "OptiFlow Consulting Dashboard",
         ["Metric", "Value"],
         dashboard_rows,
         blue_fill
@@ -1062,8 +1036,8 @@ def render_ai_copilot(
     risk_score,
     risk_level
 ):
-    st.markdown("## Executive AI Copilot")
-    st.write("OpenAI destekli gerçek yönetim danışmanlığı copilot'u. Mevcut analiz sonuçlarına göre karar desteği üretir.")
+    st.markdown("## Executive Danışman Asistanı")
+    st.write("OpenVeri temelli gerçek yönetim danışmanlığı copilot'u. Mevcut analiz sonuçlarına göre karar desteği üretir.")
 
     quick_questions = [
         "En büyük operasyonel risk nedir?",
@@ -1171,31 +1145,44 @@ with st.sidebar:
     if os.path.exists("assets/logo.png"):
         st.image("assets/logo.png", width=220)
 
-    st.title("OptiFlow Menu")
+    st.title("OptiFlow Portal")
 
-    page = st.radio(
-        "Navigation",
-        [
-            "Landing Page",
-            "Dashboard",
-            "AI Copilot",
-            "Analysis",
-            "Excel Upload AI",
-            "Benchmark Center",
-            "Benchmark Intelligence",
-            "Clients",
-            "Client Portal",
-            "My Reports",
-            "Report Delivery",
-            "Report Center",
-            "Billing",
-            "Admin Panel",
-            "Admin Analytics",
-            "Email Logs"
-        ]
-    )
+    customer_pages = [
+        "Dashboard",
+        "Danışman Asistanı",
+        "Executive Consultant",
+        "Proposal Generator",
+        "Analysis",
+        "Excel Upload",
+        "Benchmark Center",
+        "Benchmark Intelligence",
+        "Client Portal",
+        "My Reports",
+        "Report Delivery",
+        "Report Center",
+        "Billing"
+    ]
 
+    admin_pages = [
+        "Admin Panel",
+        "Admin Analytics",
+        "Email Logs"
+    ]
 
+    try:
+        sidebar_email = st.user.email if st.user.is_logged_in else ""
+    except Exception:
+        sidebar_email = ""
+
+    admin_email_list = [
+        e.strip().lower()
+        for e in st.secrets.get("ADMIN_EMAILS", "").split(",")
+        if e.strip()
+    ]
+
+    nav_pages = customer_pages + (admin_pages if sidebar_email.lower() in admin_email_list else [])
+
+    page = st.radio("Menü", nav_pages)
 
 
 
@@ -1437,7 +1424,7 @@ def render_v12_excel_upload_center(
     active_plan,
     active_rules
 ):
-    st.markdown("## V12 Excel Upload + Automatic KPI Engine")
+    st.markdown("## Excel Upload + Otomatik KPI Motoru")
     st.write("Üretim veya operasyon verisini yükle; OptiFlow otomatik KPI, darboğaz, benchmark ve finansal analiz üretir.")
 
     if active_plan == "demo":
@@ -1687,7 +1674,7 @@ def render_admin_dashboard(user_email):
         st.stop()
 
     st.markdown("## Admin Dashboard")
-    st.caption("OptiFlow SaaS yönetim paneli")
+    st.caption("OptiFlow Platform yönetim paneli")
 
     users = admin_load_table("users")
     projects = admin_load_table("projects")
@@ -1788,14 +1775,14 @@ def render_admin_dashboard(user_email):
 # ============================================================
 
 def render_client_portal(user_email):
-    st.markdown("## V17 Client Portal")
+    st.markdown("## Client Portal")
     st.caption("Müşteri bazlı rapor geçmişi, KPI trendleri, tasarruf potansiyeli ve aksiyon görünümü")
 
     projects = load_user_projects(user_email)
     reports = load_user_reports(user_email)
 
     if not projects:
-        st.info("Henüz proje kaydı yok. Report Center veya Excel Upload AI üzerinden rapor oluşturduğunda burada görünecek.")
+        st.info("Henüz proje kaydı yok. Report Center veya Excel Upload üzerinden rapor oluşturduğunda burada görünecek.")
         return
 
     projects_df = pd.DataFrame(projects)
@@ -1962,7 +1949,7 @@ def render_benchmark_intelligence(
     financial_result,
     risk_level
 ):
-    st.markdown("## V18 AI Benchmark Intelligence")
+    st.markdown("## V18 Benchmark Intelligence")
     st.caption("Sektör karşılaştırmasını yönetici diline çeviren stratejik benchmark motoru")
 
     executive, insights = benchmark_intelligence_text(
@@ -2010,9 +1997,9 @@ def render_benchmark_intelligence(
             hide_index=True
         )
 
-    st.markdown("### AI Benchmark Yorumu")
+    st.markdown("### Benchmark Yorumu")
 
-    if st.button("AI Benchmark Intelligence Raporu Üret", type="primary"):
+    if st.button("Benchmark Intelligence Raporu Üret", type="primary"):
         question = f"""
 Aşağıdaki benchmark sonuçlarına göre üst yönetime yönelik benchmark intelligence raporu yaz:
 
@@ -2030,7 +2017,7 @@ Benchmark Sonuçları: {benchmark_result}
 4. Operasyonel Öncelik
 5. Yönetim Kararı
 """
-        with st.spinner("AI Benchmark Intelligence hazırlanıyor..."):
+        with st.spinner("Benchmark Intelligence hazırlanıyor..."):
             answer = ask_real_ai_copilot(
                 question=question,
                 company_name=company_name,
@@ -2187,7 +2174,7 @@ def render_proposal_generator(
     active_plan,
     active_rules
 ):
-    st.markdown("## V19 Proposal Generator")
+    st.markdown("## Proposal Generator")
     st.caption("OptiFlow analizinden otomatik danışmanlık teklif dokümanı üretir.")
 
     if not active_rules.get("ai", False):
@@ -2282,7 +2269,7 @@ Danışmanlık şirketi müşteriye gönderecekmiş gibi yaz.
 {company_name} için hazırlanan OptiFlow danışmanlık teklif dokümanı ekte yer almaktadır.
 
 Saygılarımızla,
-OptiFlow Enterprise""",
+OptiFlow Consulting""",
                 attachment_paths=[proposal_docx]
             )
 
@@ -2302,7 +2289,7 @@ OptiFlow Enterprise""",
 
 
 # ============================================================
-# V16 AI EXECUTIVE CONSULTANT
+# EXECUTIVE CONSULTANT
 # ============================================================
 
 def build_executive_consultant_context(
@@ -2430,7 +2417,7 @@ Format:
 """
 
     try:
-        # Mevcut ai_copilot modülünü kullanmak yerine doğrudan OpenAI fonksiyonuna uygun soru soruyoruz.
+        # Mevcut ai_copilot modülünü kullanmak yerine doğrudan Openfonksiyonuna uygun soru soruyoruz.
         answer = ask_real_ai_copilot(
             question=prompt,
             company_name=company_name,
@@ -2446,7 +2433,7 @@ Format:
         return answer
 
     except Exception as exc:
-        return f"AI Executive Consultant çıktısı üretilemedi: {exc}"
+        return f"Executive Consultant çıktısı üretilemedi: {exc}"
 
 
 def create_executive_consultant_docx(company_name, mode, content):
@@ -2507,11 +2494,11 @@ def render_ai_executive_consultant(
     active_plan,
     active_rules
 ):
-    st.markdown("## V16 AI Executive Consultant")
+    st.markdown("## V16 Executive Consultant")
     st.caption("CEO, COO, CFO ve yönetim kurulu seviyesinde profesyonel danışmanlık çıktıları üretir.")
 
     if not active_rules.get("ai", False):
-        render_locked_feature("AI Executive Consultant", active_plan)
+        render_locked_feature("Executive Consultant", active_plan)
         return
 
     mode = st.selectbox(
@@ -2533,7 +2520,7 @@ def render_ai_executive_consultant(
     c3.metric("Yıllık Tasarruf", money_fmt(financial_result.get("Tahmini Yıllık Tasarruf", 0)))
     c4.metric("ROI", pct_fmt(financial_result.get("ROI (%)", 0)))
 
-    with st.expander("AI Context Verisi"):
+    with st.expander("Analiz Verisi"):
         st.text(
             build_executive_consultant_context(
                 company_name,
@@ -2553,7 +2540,7 @@ def render_ai_executive_consultant(
         st.session_state.v16_consultant_output = ""
 
     if st.button("Executive Consultant Çıktısı Üret", type="primary"):
-        with st.spinner("OptiFlow AI Executive Consultant hazırlanıyor..."):
+        with st.spinner("OptiFlow Executive Consultant hazırlanıyor..."):
             st.session_state.v16_consultant_output = generate_executive_consultant_output(
                 mode=mode,
                 company_name=company_name,
@@ -2624,7 +2611,7 @@ def render_ai_executive_consultant(
 Çıktı türü: {mode}
 
 Saygılarımızla,
-OptiFlow Enterprise""",
+OptiFlow Consulting""",
                     attachment_paths=[docx_file, txt_file]
                 )
 
@@ -2787,7 +2774,7 @@ def render_my_reports_center(user_email):
     reports = load_user_reports(user_email)
 
     if not reports:
-        st.info("Henüz rapor geçmişi bulunmuyor. Report Center veya Excel Upload AI üzerinden rapor oluştur.")
+        st.info("Henüz rapor geçmişi bulunmuyor. Report Center veya Excel Upload üzerinden rapor oluştur.")
         return
 
     df = pd.DataFrame(reports)
@@ -2818,7 +2805,7 @@ OptiFlow analiz raporunuz hazırdır.
 Ekli dosyada rapor çıktısını bulabilirsiniz.
 
 Saygılarımızla,
-OptiFlow Enterprise"""
+OptiFlow Consulting"""
     )
 
     if st.button("Seçili Raporu Mail Gönder", type="primary"):
@@ -2856,7 +2843,7 @@ def render_report_delivery_center(user_email, active_plan, active_rules):
     reports = load_user_reports(user_email)
 
     if not reports:
-        st.info("Gönderilecek rapor bulunamadı. Önce Report Center veya Excel Upload AI üzerinden rapor oluştur.")
+        st.info("Gönderilecek rapor bulunamadı. Önce Report Center veya Excel Upload üzerinden rapor oluştur.")
         return
 
     df = pd.DataFrame(reports)
@@ -2872,21 +2859,21 @@ def render_report_delivery_center(user_email, active_plan, active_rules):
 
     subject = st.text_input(
         "Konu",
-        value="OptiFlow Enterprise Raporlarınız Hazır"
+        value="OptiFlow Consulting Raporlarınız Hazır"
     )
 
     body = st.text_area(
         "E-posta mesajı",
         value=f"""Merhaba,
 
-OptiFlow Enterprise analiz çıktılarınız hazırlanmıştır.
+OptiFlow Consulting analiz çıktılarınız hazırlanmıştır.
 
 Ekli dosyalarda PDF, PowerPoint veya Excel raporlarınızı bulabilirsiniz.
 
 Bu rapor; operasyonel performans, finansal etki, benchmark ve yönetim önerileri içermektedir.
 
 Saygılarımızla,
-OptiFlow Enterprise"""
+OptiFlow Consulting"""
     )
 
     if st.button("Seçili Raporları E-posta ile Gönder", type="primary"):
@@ -2970,8 +2957,8 @@ def render_admin_analytics(user_email):
         st.error("Bu sayfa sadece admin kullanıcılar içindir.")
         st.stop()
 
-    st.markdown("## V13 Admin Analytics")
-    st.caption("SaaS performans, kullanım, rapor ve müşteri aktivitesi yönetim ekranı")
+    st.markdown("## Admin Analytics")
+    st.caption("Platform performans, kullanım, rapor ve müşteri aktivitesi yönetim ekranı")
 
     users = admin_load_table("users")
     projects = admin_load_table("projects")
@@ -3227,18 +3214,18 @@ can_analyze, analyses_used, analyses_limit = can_create_analysis(user_email, act
 render_user_bar(user_email, active_plan, active_rules, analyses_used, analyses_limit)
 
 
-if page == "Landing Page":
+if page == "Ana Sayfa":
     st.markdown(
         """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V19</div>
+    <div class="hero-title">OptiFlow Consulting</div>
     <div class="hero-subtitle">
         Operational Excellence Intelligence Platform with Plotly Executive Dashboards, KPI Diagnostics and Enterprise Reporting.
     </div>
     <span class="hero-badge">Plotly Dashboard</span>
     <span class="hero-badge">KPI Diagnostics</span>
     <span class="hero-badge">Financial Impact</span>
-    <span class="hero-badge">AI Consulting</span>
+    <span class="hero-badge">Consulting</span>
     <span class="hero-badge">PDF & PPT Export</span>
 </div>
         """,
@@ -3260,7 +3247,7 @@ if page == "Landing Page":
 st.markdown(
     """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V19</div>
+    <div class="hero-title">OptiFlow Consulting</div>
     <div class="hero-subtitle">
         Commercial Operations Excellence Platform | Plotly Dashboard | Benchmark Intelligence | PDF & PPT Export
     </div>
@@ -3396,9 +3383,9 @@ if page == "Dashboard":
     )
 
 
-elif page == "AI Copilot":
+elif page == "Danışman Asistanı":
     if not active_rules.get("ai", False):
-        render_locked_feature("AI Copilot", active_plan)
+        render_locked_feature("Danışman Asistanı", active_plan)
     else:
         render_ai_copilot(
             company_name=company_name,
@@ -3415,7 +3402,7 @@ elif page == "AI Copilot":
 
 
 
-elif page == "AI Executive Consultant":
+elif page == "Executive Consultant":
     render_ai_executive_consultant(
         company_name=company_name,
         sector=sector,
@@ -3465,7 +3452,7 @@ elif page == "Analysis":
 
 
 
-elif page == "Excel Upload AI":
+elif page == "Excel Upload":
     render_v12_excel_upload_center(
         company_name=company_name,
         sector=sector,
@@ -3556,7 +3543,7 @@ elif page == "Report Center":
         if not active_rules.get("pdf", False):
             render_locked_feature("PDF / Excel Export", active_plan)
         elif st.button("Enterprise PDF Raporu Oluştur", type="primary"):
-            with st.spinner("OptiFlow Enterprise PDF raporu hazırlanıyor..."):
+            with st.spinner("OptiFlow Consulting PDF raporu hazırlanıyor..."):
                 consulting_report = generate_consulting_report(
                     sector=sector,
                     company_metrics=company_metrics,
@@ -3631,22 +3618,22 @@ elif page == "Report Center":
             if send_mail_after_report:
                 ok, mail_msg = send_email_with_attachments(
                     to_email=report_mail_to,
-                    subject=f"OptiFlow Enterprise Raporunuz Hazır - {company_name}",
+                    subject=f"OptiFlow Consulting Raporunuz Hazır - {company_name}",
                     body=f"""Merhaba,
 
-{company_name} için OptiFlow Enterprise analiz raporunuz hazırlanmıştır.
+{company_name} için OptiFlow Consulting analiz raporunuz hazırlanmıştır.
 
 Ekli dosyalarda PDF ve Excel çıktılarınızı bulabilirsiniz.
 
 Saygılarımızla,
-OptiFlow Enterprise""",
+OptiFlow Consulting""",
                     attachment_paths=[pdf_file, excel_file]
                 )
 
                 save_email_log(
                     user_email=user_email,
                     to_email=report_mail_to,
-                    subject=f"OptiFlow Enterprise Raporunuz Hazır - {company_name}",
+                    subject=f"OptiFlow Consulting Raporunuz Hazır - {company_name}",
                     status="success" if ok else "failed",
                     message=mail_msg,
                     company_name=company_name
@@ -3741,7 +3728,7 @@ elif page == "Billing":
         st.markdown("#### Professional")
         st.write("$149/month")
         st.write("100 analyses/month")
-        st.write("PDF + PPT + Excel + AI")
+        st.write("PDF + PPT + Excel +")
         link = st.secrets.get("STRIPE_PROFESSIONAL_LINK", "")
         if link:
             st.link_button("Buy Professional", link)
