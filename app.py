@@ -13,6 +13,7 @@ from modules.maturity import get_maturity_comment
 from modules.recommendations import generate_recommendations
 from modules.ai_engine import generate_consulting_report
 from modules.report_engine import create_enterprise_pdf
+from modules.ai_copilot import ask_real_ai_copilot
 
 try:
     from modules.excel_engine import process_uploaded_excel, create_template_excel
@@ -27,7 +28,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="OptiFlow Enterprise V7",
+    page_title="OptiFlow Enterprise V8",
     page_icon="📊",
     layout="wide"
 )
@@ -448,75 +449,18 @@ def generate_copilot_answer(
     risk_score,
     risk_level
 ):
-    wait_rate = company_metrics.get("wait_rate", 0)
-    oee = company_metrics.get("oee", 0)
-    defect_rate = company_metrics.get("defect_rate", 0)
-    line_balance_loss = company_metrics.get("line_balance_loss", 0)
-    annual_saving = financial_result.get("Tahmini Yıllık Tasarruf", 0)
-    roi = financial_result.get("ROI (%)", 0)
-    payback = financial_result.get("Geri Dönüş Süresi (Ay)", 0)
-
-    question_lower = str(question).lower()
-
-    base_context = (
-        f"{company_name} ({sector}) için OptiFlow Score {score}/100, "
-        f"risk seviyesi {risk_level} ({risk_score}/100), "
-        f"bekleme oranı {pct_fmt(wait_rate)}, OEE {pct_fmt(oee)}, "
-        f"hata oranı {pct_fmt(defect_rate)}, hat denge kaybı {pct_fmt(line_balance_loss)}, "
-        f"tahmini yıllık tasarruf {money_fmt(annual_saving)}, ROI {pct_fmt(roi)} "
-        f"ve geri dönüş süresi {payback} ay olarak hesaplanmıştır."
+    return ask_real_ai_copilot(
+        question=question,
+        company_name=company_name,
+        sector=sector,
+        score=score,
+        maturity=maturity,
+        company_metrics=company_metrics,
+        financial_result=financial_result,
+        recommendations=recommendations,
+        risk_score=risk_score,
+        risk_level=risk_level
     )
-
-    if "risk" in question_lower:
-        answer = (
-            f"En kritik risk alanı bekleme ve hat dengeleme kaynaklı akış kaybıdır. "
-            f"Mevcut risk skoru {risk_score}/100 ve risk seviyesi {risk_level}. "
-            f"Bu durum teslimat performansı, kapasite kullanımı ve maliyet kontrolü üzerinde baskı yaratabilir. "
-            f"İlk aksiyon olarak darboğaz gözlemi, bekleme süresi ölçümü ve hat dengeleme çalışması önerilir."
-        )
-
-    elif "roi" in question_lower or "tasarruf" in question_lower or "kazanç" in question_lower:
-        answer = (
-            f"Finansal olarak en güçlü alan bekleme sürelerinin azaltılmasıdır. "
-            f"Tahmini yıllık tasarruf potansiyeli {money_fmt(annual_saving)} seviyesindedir. "
-            f"ROI {pct_fmt(roi)} ve geri dönüş süresi {payback} ay olarak görünmektedir. "
-            f"Bu nedenle iyileştirme programı yüksek yatırım gerektiren kapasite artışından önce süreç akışı, OEE ve standart iş odağıyla başlatılmalıdır."
-        )
-
-    elif "90" in question_lower or "roadmap" in question_lower or "yol" in question_lower:
-        answer = (
-            "Önerilen 90 günlük plan: "
-            "0-30 gün: Veri doğrulama, KPI baz çizgisi, darboğaz gözlemi ve hızlı kazanım alanlarının belirlenmesi. "
-            "30-60 gün: Hat dengeleme, bekleme azaltma, standart iş ve OEE takip sisteminin kurulması. "
-            "60-90 gün: KPI toplantı ritmi, sorumluluk matrisi, performans panosu ve sürdürülebilir yönetim sisteminin devreye alınması."
-        )
-
-    elif "öncelik" in question_lower or "aksiyon" in question_lower or "başla" in question_lower:
-        top_actions = recommendations[:3] if recommendations else [
-            "Bekleme sürelerini azalt",
-            "Hat dengeleme çalışması başlat",
-            "OEE takip sistemini kur"
-        ]
-
-        answer = "İlk 3 yönetim aksiyonu şunlar olmalıdır: " + " ".join(
-            [f"{i+1}) {action}." for i, action in enumerate(top_actions)]
-        )
-
-    elif "maturity" in question_lower or "olgunluk" in question_lower:
-        answer = (
-            f"Operasyonel olgunluk seviyesi {maturity.get('Seviye', '-')}. "
-            f"{maturity.get('Yorum', '')} "
-            f"Bu seviyede ana ihtiyaç, operasyonel performansı kişisel takipten çıkarıp standart KPI ritmi, veri doğrulama ve düzenli yönetim toplantılarıyla sistematik hale getirmektir."
-        )
-
-    else:
-        answer = (
-            f"{base_context} Yönetim açısından en önemli yorum: işletmede ölçülebilir iyileştirme potansiyeli vardır. "
-            f"Öncelik bekleme sürelerinin azaltılması, hat dengeleme, OEE takibi ve kalite kayıplarının finansal etkisinin görünür hale getirilmesi olmalıdır."
-        )
-
-    return answer
-
 
 def render_ai_copilot(
     company_name,
@@ -530,7 +474,7 @@ def render_ai_copilot(
     risk_level
 ):
     st.markdown("## Executive AI Copilot")
-    st.write("Yönetici sorularına mevcut analiz sonuçlarına göre hızlı karar desteği üretir.")
+    st.write("OpenAI destekli gerçek yönetim danışmanlığı copilot'u. Mevcut analiz sonuçlarına göre karar desteği üretir.")
 
     quick_questions = [
         "En büyük operasyonel risk nedir?",
@@ -658,7 +602,7 @@ if page == "Landing Page":
     st.markdown(
         """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise V7</div>
+    <div class="hero-title">OptiFlow Enterprise V8</div>
     <div class="hero-subtitle">
         Operational Excellence Intelligence Platform with Plotly Executive Dashboards, KPI Diagnostics and Enterprise Reporting.
     </div>
@@ -687,7 +631,7 @@ if page == "Landing Page":
 st.markdown(
     """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise V7</div>
+    <div class="hero-title">OptiFlow Enterprise V8</div>
     <div class="hero-subtitle">
         Commercial Operations Excellence Platform | Plotly Dashboard | Benchmark Intelligence | PDF & PPT Export
     </div>

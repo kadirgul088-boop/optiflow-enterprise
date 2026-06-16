@@ -5,3 +5,7 @@ matplotlib
 reportlab
 openpyxl
 python-pptx
+plotly
+pillow
+openai
+
