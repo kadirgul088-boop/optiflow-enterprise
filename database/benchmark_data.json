@@ -1,0 +1,36 @@
+{
+  "Tekstil": {
+    "bekleme_orani": 14,
+    "oee": 75,
+    "hata_orani": 3,
+    "hat_denge_kaybi": 12
+  },
+
+  "Otomotiv": {
+    "bekleme_orani": 10,
+    "oee": 80,
+    "hata_orani": 2,
+    "hat_denge_kaybi": 8
+  },
+
+  "Gida": {
+    "bekleme_orani": 12,
+    "oee": 78,
+    "hata_orani": 2.5,
+    "hat_denge_kaybi": 10
+  },
+
+  "Lojistik": {
+    "bekleme_orani": 18,
+    "oee": 70,
+    "hata_orani": 4,
+    "hat_denge_kaybi": 15
+  },
+
+  "Genel Uretim": {
+    "bekleme_orani": 15,
+    "oee": 75,
+    "hata_orani": 3,
+    "hat_denge_kaybi": 12
+  }
+}

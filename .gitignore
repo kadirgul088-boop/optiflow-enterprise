@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.venv/
+venv/
+client_projects/
+exports/
+*.pdf
+*.pptx
+*.xlsx

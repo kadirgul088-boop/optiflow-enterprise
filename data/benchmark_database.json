@@ -1,0 +1,32 @@
+{
+    "Tekstil": {
+        "wait_rate": 18.0,
+        "oee": 74.0,
+        "defect_rate": 4.0,
+        "line_balance_loss": 15.0
+    },
+    "Otomotiv": {
+        "wait_rate": 12,
+        "oee": 82,
+        "defect_rate": 2,
+        "line_balance_loss": 10
+    },
+    "Gida": {
+        "wait_rate": 15,
+        "oee": 78,
+        "defect_rate": 3,
+        "line_balance_loss": 12
+    },
+    "Lojistik": {
+        "wait_rate": 20,
+        "oee": 70,
+        "defect_rate": 5,
+        "line_balance_loss": 18
+    },
+    "Genel Uretim": {
+        "wait_rate": 17,
+        "oee": 75,
+        "defect_rate": 4,
+        "line_balance_loss": 14
+    }
+}
