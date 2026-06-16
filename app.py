@@ -32,7 +32,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="OptiFlow Enterprise SaaS V12",
+    page_title="OptiFlow Enterprise SaaS V13",
     page_icon="📊",
     layout="wide"
 )
@@ -1183,7 +1183,8 @@ with st.sidebar:
             "Clients",
             "Report Center",
             "Billing",
-            "Admin Panel"
+            "Admin Panel",
+            "Admin Analytics"
         ]
     )
 
@@ -1767,6 +1768,263 @@ def render_admin_dashboard(user_email):
 
 
 
+
+
+# ============================================================
+# V13 ADMIN ANALYTICS DASHBOARD
+# ============================================================
+
+def _df_or_empty(data):
+    try:
+        return pd.DataFrame(data or [])
+    except Exception:
+        return pd.DataFrame()
+
+
+def render_admin_analytics(user_email):
+    if not is_admin_user(user_email):
+        st.error("Bu sayfa sadece admin kullanıcılar içindir.")
+        st.stop()
+
+    st.markdown("## V13 Admin Analytics")
+    st.caption("SaaS performans, kullanım, rapor ve müşteri aktivitesi yönetim ekranı")
+
+    users = admin_load_table("users")
+    projects = admin_load_table("projects")
+    reports = admin_load_table("reports")
+    subscriptions = admin_load_table("subscriptions")
+
+    users_df = _df_or_empty(users)
+    projects_df = _df_or_empty(projects)
+    reports_df = _df_or_empty(reports)
+    subs_df = _df_or_empty(subscriptions)
+
+    total_users = len(users_df)
+    total_projects = len(projects_df)
+    total_reports = len(reports_df)
+
+    active_subs = 0
+    if not subs_df.empty and "status" in subs_df.columns:
+        active_subs = int(subs_df["status"].astype(str).str.lower().isin(["active", "trialing"]).sum())
+
+    total_saving = 0
+    if not projects_df.empty and "annual_saving" in projects_df.columns:
+        total_saving = pd.to_numeric(projects_df["annual_saving"], errors="coerce").fillna(0).sum()
+
+    avg_score = 0
+    if not projects_df.empty and "score" in projects_df.columns:
+        avg_score = pd.to_numeric(projects_df["score"], errors="coerce").fillna(0).mean()
+
+    pdf_count = 0
+    ppt_count = 0
+    excel_count = 0
+    if not reports_df.empty and "report_type" in reports_df.columns:
+        report_types = reports_df["report_type"].astype(str).str.lower()
+        pdf_count = int((report_types == "pdf").sum())
+        ppt_count = int((report_types == "ppt").sum() + (report_types == "pptx").sum())
+        excel_count = int((report_types == "excel").sum())
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Toplam Kullanıcı", total_users)
+    k2.metric("Aktif Abone", active_subs)
+    k3.metric("Toplam Analiz", total_projects)
+    k4.metric("Toplam Rapor", total_reports)
+    k5.metric("Ortalama Score", f"{avg_score:.1f}")
+
+    k6, k7, k8, k9 = st.columns(4)
+    k6.metric("Toplam Tasarruf Potansiyeli", money_fmt(total_saving))
+    k7.metric("PDF", pdf_count)
+    k8.metric("PPT", ppt_count)
+    k9.metric("Excel", excel_count)
+
+    st.markdown("---")
+
+    chart_col1, chart_col2 = st.columns(2)
+
+    with chart_col1:
+        st.markdown("### Plan Dağılımı")
+        if not users_df.empty and "plan" in users_df.columns:
+            plan_counts = (
+                users_df["plan"]
+                .fillna("demo")
+                .astype(str)
+                .str.lower()
+                .value_counts()
+                .reset_index()
+            )
+            plan_counts.columns = ["Plan", "Kullanıcı Sayısı"]
+            fig = px.pie(
+                plan_counts,
+                names="Plan",
+                values="Kullanıcı Sayısı",
+                hole=0.45,
+                title="Kullanıcı Plan Dağılımı"
+            )
+            fig.update_layout(height=360, margin=dict(l=20, r=20, t=55, b=20))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Plan verisi bulunamadı.")
+
+    with chart_col2:
+        st.markdown("### Rapor Tipleri")
+        if not reports_df.empty and "report_type" in reports_df.columns:
+            report_counts = (
+                reports_df["report_type"]
+                .fillna("unknown")
+                .astype(str)
+                .str.lower()
+                .value_counts()
+                .reset_index()
+            )
+            report_counts.columns = ["Rapor Tipi", "Adet"]
+            fig = px.bar(
+                report_counts,
+                x="Rapor Tipi",
+                y="Adet",
+                text="Adet",
+                title="Rapor Kullanımı"
+            )
+            fig.update_layout(height=360, margin=dict(l=20, r=20, t=55, b=20))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Rapor verisi bulunamadı.")
+
+    st.markdown("### Son 30 Gün Aktivite")
+
+    if not projects_df.empty and "created_at" in projects_df.columns:
+        temp = projects_df.copy()
+        temp["created_at"] = pd.to_datetime(temp["created_at"], errors="coerce")
+        temp = temp.dropna(subset=["created_at"])
+
+        if not temp.empty:
+            last_30 = temp[temp["created_at"] >= (pd.Timestamp.utcnow() - pd.Timedelta(days=30))]
+            daily = (
+                last_30
+                .assign(date=last_30["created_at"].dt.date)
+                .groupby("date")
+                .size()
+                .reset_index(name="Analiz Sayısı")
+            )
+
+            if not daily.empty:
+                fig = px.line(
+                    daily,
+                    x="date",
+                    y="Analiz Sayısı",
+                    markers=True,
+                    title="Günlük Analiz Aktivitesi"
+                )
+                fig.update_layout(height=360, margin=dict(l=20, r=20, t=55, b=20))
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Son 30 günde analiz verisi yok.")
+        else:
+            st.info("Aktivite tarih verisi okunamadı.")
+    else:
+        st.info("Aktivite verisi bulunamadı.")
+
+    st.markdown("### Sektör Bazlı Kullanım")
+
+    if not projects_df.empty and "sector" in projects_df.columns:
+        sector_counts = (
+            projects_df["sector"]
+            .fillna("Unknown")
+            .astype(str)
+            .value_counts()
+            .reset_index()
+        )
+        sector_counts.columns = ["Sektör", "Analiz Sayısı"]
+
+        fig = px.bar(
+            sector_counts,
+            x="Sektör",
+            y="Analiz Sayısı",
+            text="Analiz Sayısı",
+            title="En Çok Analiz Yapılan Sektörler"
+        )
+        fig.update_layout(height=380, margin=dict(l=20, r=20, t=55, b=20))
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Sektör verisi bulunamadı.")
+
+    st.markdown("### En Yüksek Tasarruf Potansiyeli Olan Projeler")
+
+    if not projects_df.empty:
+        display_cols = [c for c in ["company_name", "sector", "score", "risk_level", "annual_saving", "created_at", "user_email"] if c in projects_df.columns]
+        top_projects = projects_df.copy()
+
+        if "annual_saving" in top_projects.columns:
+            top_projects["annual_saving"] = pd.to_numeric(top_projects["annual_saving"], errors="coerce").fillna(0)
+            top_projects = top_projects.sort_values("annual_saving", ascending=False).head(10)
+
+        st.dataframe(
+            top_projects[display_cols],
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Proje verisi bulunamadı.")
+
+    st.markdown("### Kullanıcı Aktivite Tablosu")
+
+    if not users_df.empty:
+        user_activity = users_df.copy()
+
+        if not projects_df.empty and "user_email" in projects_df.columns:
+            project_counts = projects_df.groupby("user_email").size().reset_index(name="analysis_count")
+            user_activity = user_activity.merge(
+                project_counts,
+                how="left",
+                left_on="email",
+                right_on="user_email"
+            )
+            user_activity["analysis_count"] = user_activity["analysis_count"].fillna(0).astype(int)
+        else:
+            user_activity["analysis_count"] = 0
+
+        if not reports_df.empty and "user_email" in reports_df.columns:
+            report_counts = reports_df.groupby("user_email").size().reset_index(name="report_count")
+            user_activity = user_activity.merge(
+                report_counts,
+                how="left",
+                left_on="email",
+                right_on="user_email",
+                suffixes=("", "_report")
+            )
+            user_activity["report_count"] = user_activity["report_count"].fillna(0).astype(int)
+        else:
+            user_activity["report_count"] = 0
+
+        cols = [c for c in ["email", "full_name", "plan", "plan_status", "analysis_limit", "analysis_count", "report_count", "created_at"] if c in user_activity.columns]
+
+        st.dataframe(
+            user_activity[cols],
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Kullanıcı verisi bulunamadı.")
+
+    st.markdown("### Admin Export")
+
+    if st.button("Admin Analytics Excel Oluştur", type="primary"):
+        file_name = os.path.join(EXPORT_DIR, "OptiFlow_Admin_Analytics.xlsx")
+
+        with pd.ExcelWriter(file_name, engine="openpyxl") as writer:
+            users_df.to_excel(writer, sheet_name="Users", index=False)
+            projects_df.to_excel(writer, sheet_name="Projects", index=False)
+            reports_df.to_excel(writer, sheet_name="Reports", index=False)
+            subs_df.to_excel(writer, sheet_name="Subscriptions", index=False)
+
+        with open(file_name, "rb") as file:
+            st.download_button(
+                "Admin Analytics Excel İndir",
+                data=file,
+                file_name="OptiFlow_Admin_Analytics.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+
 # ============================================================
 # AUTH GATE
 # ============================================================
@@ -1789,7 +2047,7 @@ if page == "Landing Page":
     st.markdown(
         """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V12</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V13</div>
     <div class="hero-subtitle">
         Operational Excellence Intelligence Platform with Plotly Executive Dashboards, KPI Diagnostics and Enterprise Reporting.
     </div>
@@ -1818,7 +2076,7 @@ if page == "Landing Page":
 st.markdown(
     """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V12</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V13</div>
     <div class="hero-subtitle">
         Commercial Operations Excellence Platform | Plotly Dashboard | Benchmark Intelligence | PDF & PPT Export
     </div>
@@ -2271,3 +2529,7 @@ elif page == "Billing":
 
 elif page == "Admin Panel":
     render_admin_dashboard(user_email)
+
+
+elif page == "Admin Analytics":
+    render_admin_analytics(user_email)
