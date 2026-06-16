@@ -533,6 +533,15 @@ def current_user_name():
 
 
 def get_user_profile(email):
+    if st.session_state.get("demo_mode", False):
+        return {
+            "email": "demo@optiflow.ai",
+            "full_name": "Demo User",
+            "plan": "demo",
+            "plan_status": "active",
+            "analysis_limit": 1
+        }
+
     supabase = get_supabase_client()
 
     if not supabase or not email:
@@ -545,11 +554,18 @@ def get_user_profile(email):
         }
 
     try:
-        result = supabase.table("users").select("*").eq("email", email).limit(1).execute()
+        result = (
+            supabase
+            .table("users")
+            .select("*")
+            .eq("email", email)
+            .limit(1)
+            .execute()
+        )
+
         if result.data:
             return result.data[0]
 
-        # First login: create demo user record automatically.
         payload = {
             "email": email,
             "full_name": current_user_name(),
@@ -561,8 +577,7 @@ def get_user_profile(email):
         supabase.table("users").insert(payload).execute()
         return payload
 
-    except Exception as exc:
-        st.warning(f"Supabase user profile error: {exc}")
+    except Exception:
         return {
             "email": email,
             "full_name": current_user_name(),
