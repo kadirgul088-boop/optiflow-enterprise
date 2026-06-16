@@ -1,53 +1,51 @@
-import pandas as pd
+from openpyxl import Workbook
+from openpyxl.styles import Font
 
+def create_excel_report(
+    company_name,
+    score,
+    maturity,
+    company_metrics,
+    benchmark_result,
+    financial_result
+):
 
-def process_excel(uploaded_file):
+    file_name = f"OptiFlow_{company_name}.xlsx"
 
-    df = pd.read_excel(uploaded_file)
+    wb = Workbook()
 
-    total_process_time = df["Süre (dk)"].sum()
-    total_wait_time = df["Bekleme Süresi"].sum()
+    # DASHBOARD
+    ws = wb.active
+    ws.title = "Dashboard"
 
-    wait_rate = round(
-        (total_wait_time / (total_process_time + total_wait_time)) * 100,
-        2
-    )
+    ws["A1"] = "OptiFlow Enterprise Dashboard"
+    ws["A1"].font = Font(bold=True, size=14)
 
-    avg_quality = round(df["Kalite Oranı"].mean(), 2)
+    dashboard = [
+        ["Metric", "Value"],
+        ["OptiFlow Score", score],
+        ["Maturity", maturity["Seviye"]],
+        ["Wait Rate", company_metrics["wait_rate"]],
+        ["OEE", company_metrics["oee"]],
+        ["Defect Rate", company_metrics["defect_rate"]],
+        ["Line Balance Loss", company_metrics["line_balance_loss"]],
+    ]
 
-    avg_defect = round(df["Fire Oranı"].mean(), 2)
+    for row in dashboard:
+        ws.append(row)
 
-    operator_count = df["Operatör Sayısı"].sum()
+    # BENCHMARK
+    ws2 = wb.create_sheet("Benchmark")
 
-    machine_count = df["Makine Sayısı"].sum()
+    for key, value in benchmark_result.items():
+        ws2.append([str(key), str(value)])
 
-    daily_output = df["Günlük Adet"].sum()
+    # FINANCIAL
+    ws3 = wb.create_sheet("Financial")
 
-    oee_estimate = round(
-        max(
-            40,
-            100
-            - wait_rate * 0.6
-            - avg_defect * 2
-        ),
-        2
-    )
+    for key, value in financial_result.items():
+        ws3.append([str(key), str(value)])
 
-    line_balance_loss = round(
-        min(
-            40,
-            wait_rate * 0.7
-        ),
-        2
-    )
+    wb.save(file_name)
 
-    return {
-        "wait_rate": wait_rate,
-        "oee": oee_estimate,
-        "defect_rate": avg_defect,
-        "quality_rate": avg_quality,
-        "line_balance_loss": line_balance_loss,
-        "daily_output": daily_output,
-        "operator_count": operator_count,
-        "machine_count": machine_count
-    }
+    return file_name

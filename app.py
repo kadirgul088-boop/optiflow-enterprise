@@ -7,6 +7,9 @@ import plotly.graph_objects as go
 import plotly.express as px
 import streamlit as st
 
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
+
 from modules.scoring import calculate_optiflow_score
 from modules.financial import calculate_financial_impact
 from modules.maturity import get_maturity_comment
@@ -28,7 +31,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="OptiFlow Enterprise V8",
+    page_title="OptiFlow Enterprise V9",
     page_icon="📊",
     layout="wide"
 )
@@ -437,6 +440,184 @@ def render_plotly_dashboard(
 
 
 
+
+
+def create_excel_report(
+    company_name,
+    sector,
+    score,
+    maturity,
+    company_metrics,
+    benchmark_result,
+    financial_result,
+    recommendations,
+    risk_score,
+    risk_level
+):
+    safe_company = (
+        str(company_name)
+        .replace(" ", "_")
+        .replace("/", "_")
+        .replace("\\", "_")
+        .replace(".", "")
+    )
+
+    file_name = os.path.join(
+        EXPORT_DIR,
+        f"OptiFlow_{safe_company}_Enterprise_Data.xlsx"
+    )
+
+    wb = Workbook()
+
+    header_fill = PatternFill("solid", fgColor="0F172A")
+    blue_fill = PatternFill("solid", fgColor="EFF6FF")
+    green_fill = PatternFill("solid", fgColor="ECFDF5")
+    red_fill = PatternFill("solid", fgColor="FFF1F2")
+    white_font = Font(color="FFFFFF", bold=True)
+    bold_font = Font(bold=True)
+    title_font = Font(bold=True, size=14, color="0F172A")
+    thin = Side(border_style="thin", color="CBD5E1")
+
+    def style_sheet(ws):
+        for row in ws.iter_rows():
+            for cell in row:
+                cell.border = Border(top=thin, left=thin, right=thin, bottom=thin)
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+        for col in ws.columns:
+            max_len = 0
+            col_letter = col[0].column_letter
+            for cell in col:
+                try:
+                    max_len = max(max_len, len(str(cell.value)))
+                except Exception:
+                    pass
+            ws.column_dimensions[col_letter].width = min(max(max_len + 2, 14), 42)
+
+    def write_table(ws, start_row, title, headers, rows, fill=None):
+        ws.cell(start_row, 1, title)
+        ws.cell(start_row, 1).font = title_font
+
+        header_row = start_row + 2
+        for c, header in enumerate(headers, start=1):
+            cell = ws.cell(header_row, c, header)
+            cell.fill = header_fill
+            cell.font = white_font
+
+        for r, row in enumerate(rows, start=header_row + 1):
+            for c, value in enumerate(row, start=1):
+                cell = ws.cell(r, c, value)
+                if fill:
+                    cell.fill = fill
+
+        return header_row + len(rows) + 3
+
+    # DASHBOARD
+    ws = wb.active
+    ws.title = "Executive Dashboard"
+
+    dashboard_rows = [
+        ["Company", company_name],
+        ["Sector", sector],
+        ["OptiFlow Score", f"{score}/100"],
+        ["Maturity", maturity.get("Seviye", "-")],
+        ["Risk Level", risk_level],
+        ["Risk Score", f"{risk_score}/100"],
+        ["Annual Saving", financial_result.get("Tahmini Yıllık Tasarruf", 0)],
+        ["ROI (%)", financial_result.get("ROI (%)", 0)],
+        ["Payback Month", financial_result.get("Geri Dönüş Süresi (Ay)", 0)],
+    ]
+
+    write_table(
+        ws,
+        1,
+        "OptiFlow Enterprise Dashboard",
+        ["Metric", "Value"],
+        dashboard_rows,
+        blue_fill
+    )
+
+    # KPI
+    ws2 = wb.create_sheet("KPI Metrics")
+    kpi_rows = [
+        ["Wait Rate (%)", company_metrics.get("wait_rate", 0)],
+        ["OEE (%)", company_metrics.get("oee", 0)],
+        ["Defect Rate (%)", company_metrics.get("defect_rate", 0)],
+        ["Line Balance Loss (%)", company_metrics.get("line_balance_loss", 0)],
+    ]
+
+    write_table(
+        ws2,
+        1,
+        "Operational KPI Metrics",
+        ["KPI", "Value"],
+        kpi_rows,
+        blue_fill
+    )
+
+    # BENCHMARK
+    ws3 = wb.create_sheet("Benchmark")
+    benchmark_rows = [[str(k), str(v)] for k, v in benchmark_result.items()]
+
+    write_table(
+        ws3,
+        1,
+        "Benchmark Comparison",
+        ["Benchmark Field", "Value"],
+        benchmark_rows,
+        blue_fill
+    )
+
+    # FINANCIAL
+    ws4 = wb.create_sheet("Financial Impact")
+    financial_rows = [[str(k), str(v)] for k, v in financial_result.items()]
+
+    write_table(
+        ws4,
+        1,
+        "Financial Impact Analysis",
+        ["Financial Field", "Value"],
+        financial_rows,
+        green_fill
+    )
+
+    # RECOMMENDATIONS
+    ws5 = wb.create_sheet("Recommendations")
+    recommendation_rows = [[i, rec] for i, rec in enumerate(recommendations, start=1)]
+
+    write_table(
+        ws5,
+        1,
+        "Management Recommendations",
+        ["#", "Recommendation"],
+        recommendation_rows,
+        blue_fill
+    )
+
+    # ROADMAP
+    ws6 = wb.create_sheet("30-60-90 Roadmap")
+    roadmap_rows = [
+        ["0-30 Days", "Data validation, bottleneck confirmation, KPI baseline", "Quick-win list and measurement setup"],
+        ["30-60 Days", "Flow improvement, line balancing, standard work", "Improved flow and measurable capacity gain"],
+        ["60-90 Days", "KPI rhythm, responsibility matrix, performance board", "Sustainable management system"],
+    ]
+
+    write_table(
+        ws6,
+        1,
+        "30-60-90 Day Transformation Roadmap",
+        ["Period", "Focus", "Expected Output"],
+        roadmap_rows,
+        blue_fill
+    )
+
+    for sheet in wb.worksheets:
+        style_sheet(sheet)
+        sheet.freeze_panes = "A4"
+
+    wb.save(file_name)
+    return file_name
+
+
 def generate_copilot_answer(
     question,
     company_name,
@@ -602,7 +783,7 @@ if page == "Landing Page":
     st.markdown(
         """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise V8</div>
+    <div class="hero-title">OptiFlow Enterprise V9</div>
     <div class="hero-subtitle">
         Operational Excellence Intelligence Platform with Plotly Executive Dashboards, KPI Diagnostics and Enterprise Reporting.
     </div>
@@ -631,7 +812,7 @@ if page == "Landing Page":
 st.markdown(
     """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise V8</div>
+    <div class="hero-title">OptiFlow Enterprise V9</div>
     <div class="hero-subtitle">
         Commercial Operations Excellence Platform | Plotly Dashboard | Benchmark Intelligence | PDF & PPT Export
     </div>
@@ -897,6 +1078,19 @@ elif page == "Report Center":
                     consulting_report=consulting_report
                 )
 
+                excel_file = create_excel_report(
+                    company_name=company_name,
+                    sector=sector,
+                    score=score,
+                    maturity=maturity,
+                    company_metrics=company_metrics,
+                    benchmark_result=benchmark_result,
+                    financial_result=financial_result,
+                    recommendations=recommendations,
+                    risk_score=risk_score,
+                    risk_level=risk_level
+                )
+
                 project_path = None
                 if save_project:
                     project_path = save_project_record(
@@ -921,6 +1115,15 @@ elif page == "Report Center":
                     file_name=f"OptiFlow_{company_name.replace(' ', '_')}_Enterprise_Report.pdf",
                     mime="application/pdf"
                 )
+
+            if "excel_file" in locals() and excel_file:
+                with open(excel_file, "rb") as file:
+                    st.download_button(
+                        label="Enterprise Excel Data İndir",
+                        data=file,
+                        file_name=os.path.basename(excel_file),
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
 
     with col_ppt:
         if st.button("Executive PPTX Oluştur"):
