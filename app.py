@@ -34,7 +34,7 @@ except Exception:
 
 
 st.set_page_config(
-    page_title="OptiFlow Enterprise SaaS V16",
+    page_title="OptiFlow Enterprise SaaS V19",
     page_icon="📊",
     layout="wide"
 )
@@ -1182,7 +1182,9 @@ with st.sidebar:
             "Analysis",
             "Excel Upload AI",
             "Benchmark Center",
+            "Benchmark Intelligence",
             "Clients",
+            "Client Portal",
             "My Reports",
             "Report Delivery",
             "Report Center",
@@ -1777,6 +1779,526 @@ def render_admin_dashboard(user_email):
 
 
 
+
+
+
+
+# ============================================================
+# V17 CLIENT PORTAL + V18 BENCHMARK INTELLIGENCE + V19 PROPOSAL GENERATOR
+# ============================================================
+
+def render_client_portal(user_email):
+    st.markdown("## V17 Client Portal")
+    st.caption("Müşteri bazlı rapor geçmişi, KPI trendleri, tasarruf potansiyeli ve aksiyon görünümü")
+
+    projects = load_user_projects(user_email)
+    reports = load_user_reports(user_email)
+
+    if not projects:
+        st.info("Henüz proje kaydı yok. Report Center veya Excel Upload AI üzerinden rapor oluşturduğunda burada görünecek.")
+        return
+
+    projects_df = pd.DataFrame(projects)
+
+    if "created_at" in projects_df.columns:
+        projects_df["created_at"] = pd.to_datetime(projects_df["created_at"], errors="coerce")
+
+    total_projects = len(projects_df)
+    avg_score = pd.to_numeric(projects_df.get("score", 0), errors="coerce").fillna(0).mean()
+    total_saving = pd.to_numeric(projects_df.get("annual_saving", 0), errors="coerce").fillna(0).sum()
+
+    high_risk_count = 0
+    if "risk_level" in projects_df.columns:
+        high_risk_count = int(projects_df["risk_level"].astype(str).str.lower().isin(["yüksek", "high"]).sum())
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Toplam Analiz", total_projects)
+    c2.metric("Ortalama Score", f"{avg_score:.1f}")
+    c3.metric("Toplam Tasarruf Potansiyeli", money_fmt(total_saving))
+    c4.metric("Yüksek Riskli Analiz", high_risk_count)
+
+    st.markdown("### KPI Trendleri")
+
+    trend_cols = st.columns(2)
+
+    with trend_cols[0]:
+        if "created_at" in projects_df.columns and "score" in projects_df.columns:
+            temp = projects_df.dropna(subset=["created_at"]).sort_values("created_at")
+            if not temp.empty:
+                fig = px.line(
+                    temp,
+                    x="created_at",
+                    y="score",
+                    color="company_name" if "company_name" in temp.columns else None,
+                    markers=True,
+                    title="OptiFlow Score Trend"
+                )
+                fig.update_layout(height=360, margin=dict(l=20, r=20, t=55, b=20))
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Trend için tarih verisi yok.")
+        else:
+            st.info("Score trend verisi yok.")
+
+    with trend_cols[1]:
+        if "created_at" in projects_df.columns and "annual_saving" in projects_df.columns:
+            temp = projects_df.dropna(subset=["created_at"]).sort_values("created_at")
+            temp["annual_saving"] = pd.to_numeric(temp["annual_saving"], errors="coerce").fillna(0)
+            if not temp.empty:
+                fig = px.bar(
+                    temp,
+                    x="created_at",
+                    y="annual_saving",
+                    color="company_name" if "company_name" in temp.columns else None,
+                    title="Tasarruf Potansiyeli Trend"
+                )
+                fig.update_layout(height=360, margin=dict(l=20, r=20, t=55, b=20))
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Tasarruf trend verisi yok.")
+        else:
+            st.info("Tasarruf trend verisi yok.")
+
+    st.markdown("### Proje Geçmişi")
+    visible_cols = [c for c in ["company_name", "sector", "score", "risk_level", "annual_saving", "created_at"] if c in projects_df.columns]
+    st.dataframe(projects_df[visible_cols], use_container_width=True, hide_index=True)
+
+    st.markdown("### Rapor Geçmişi")
+    if reports:
+        reports_df = pd.DataFrame(reports)
+        report_cols = [c for c in ["report_type", "file_name", "created_at"] if c in reports_df.columns]
+        st.dataframe(reports_df[report_cols], use_container_width=True, hide_index=True)
+    else:
+        st.info("Henüz rapor kaydı yok.")
+
+    st.markdown("### Açık Yönetim Aksiyonları")
+
+    action_rows = []
+    latest = projects_df.sort_values("created_at", ascending=False).head(5) if "created_at" in projects_df.columns else projects_df.head(5)
+
+    for _, row in latest.iterrows():
+        risk = str(row.get("risk_level", "")).lower()
+        score_val = float(row.get("score", 0) or 0)
+
+        if risk in ["yüksek", "high"] or score_val < 65:
+            priority = "Yüksek"
+            action = "Darboğaz, bekleme süresi ve hat dengeleme çalışması başlatılmalı."
+        elif score_val < 80:
+            priority = "Orta"
+            action = "KPI ritmi, standart iş ve OEE takip sistemi güçlendirilmeli."
+        else:
+            priority = "Düşük"
+            action = "Sürdürülebilir performans yönetimi ve iyileştirme fırsatları izlenmeli."
+
+        action_rows.append({
+            "Firma": row.get("company_name", "-"),
+            "Öncelik": priority,
+            "Aksiyon": action,
+            "Durum": "Açık"
+        })
+
+    if action_rows:
+        st.dataframe(pd.DataFrame(action_rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("Aksiyon oluşturmak için proje kaydı yok.")
+
+
+def benchmark_intelligence_text(company_metrics, benchmark_result, sector, score, risk_level):
+    insights = []
+
+    metric_pairs = [
+        ("Bekleme Oranı", "Firma Bekleme Oranı", "Sektör Bekleme Oranı", "lower"),
+        ("OEE", "Firma OEE", "Sektör OEE", "higher"),
+        ("Hata Oranı", "Firma Hata Oranı", "Sektör Hata Oranı", "lower"),
+        ("Hat Denge Kaybı", "Firma Hat Denge Kaybı", "Sektör Hat Denge Kaybı", "lower"),
+    ]
+
+    for label, firm_key, sector_key, better in metric_pairs:
+        try:
+            firm_val = float(benchmark_result.get(firm_key, 0))
+            sector_val = float(benchmark_result.get(sector_key, 0))
+            diff = firm_val - sector_val
+
+            if sector_val == 0:
+                continue
+
+            diff_pct = abs(diff / sector_val * 100)
+
+            if better == "lower":
+                if firm_val <= sector_val:
+                    insights.append(f"{label}: Firma sektör ortalamasından %{diff_pct:.1f} daha iyi konumda.")
+                else:
+                    insights.append(f"{label}: Firma sektör ortalamasından %{diff_pct:.1f} daha zayıf; iyileştirme önceliği yüksek.")
+            else:
+                if firm_val >= sector_val:
+                    insights.append(f"{label}: Firma sektör ortalamasından %{diff_pct:.1f} daha güçlü performans gösteriyor.")
+                else:
+                    insights.append(f"{label}: Firma sektör ortalamasının %{diff_pct:.1f} gerisinde; kapasite ve etkinlik iyileştirmesi gerekli.")
+        except Exception:
+            pass
+
+    if score >= 80:
+        position = "güçlü ve ölçeklenebilir operasyonel yapı"
+    elif score >= 65:
+        position = "yönetilebilir fakat iyileştirme potansiyeli yüksek operasyonel yapı"
+    else:
+        position = "yüksek dönüşüm ihtiyacı olan operasyonel yapı"
+
+    executive = (
+        f"{sector} sektöründe yapılan benchmark değerlendirmesine göre şirketin genel pozisyonu "
+        f"'{position}' olarak yorumlanabilir. OptiFlow Score {score}/100, risk seviyesi ise {risk_level}. "
+        "Öncelik; sektör ortalamasından negatif ayrışan KPI'ların finansal etki sırasına göre iyileştirilmesidir."
+    )
+
+    return executive, insights
+
+
+def render_benchmark_intelligence(
+    company_name,
+    sector,
+    score,
+    company_metrics,
+    benchmark_result,
+    financial_result,
+    risk_level
+):
+    st.markdown("## V18 AI Benchmark Intelligence")
+    st.caption("Sektör karşılaştırmasını yönetici diline çeviren stratejik benchmark motoru")
+
+    executive, insights = benchmark_intelligence_text(
+        company_metrics=company_metrics,
+        benchmark_result=benchmark_result,
+        sector=sector,
+        score=score,
+        risk_level=risk_level
+    )
+
+    st.markdown(
+        f"""
+        <div style="padding:22px;border-radius:18px;background:#eff6ff;border-left:6px solid #2563eb;">
+        <b>Executive Benchmark Insight</b><br><br>
+        {executive}
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.markdown("### KPI Intelligence")
+
+    if insights:
+        for item in insights:
+            st.markdown(f"- {item}")
+    else:
+        st.info("Benchmark içgörüsü üretmek için yeterli veri bulunamadı.")
+
+    st.markdown("### Firma vs Sektör Karşılaştırması")
+    st.plotly_chart(plot_benchmark(benchmark_result), use_container_width=True)
+
+    st.markdown("### Öncelik Matrisi")
+
+    priority_rows = []
+    for item in insights:
+        if "zayıf" in item.lower() or "gerisinde" in item.lower():
+            priority_rows.append(["Yüksek", item, "İlk 30 gün içinde aksiyon planına alınmalı"])
+        else:
+            priority_rows.append(["Orta/Düşük", item, "Mevcut uygulama korunmalı ve izlenmeli"])
+
+    if priority_rows:
+        st.dataframe(
+            pd.DataFrame(priority_rows, columns=["Öncelik", "Benchmark Bulgusu", "Yönetim Aksiyonu"]),
+            use_container_width=True,
+            hide_index=True
+        )
+
+    st.markdown("### AI Benchmark Yorumu")
+
+    if st.button("AI Benchmark Intelligence Raporu Üret", type="primary"):
+        question = f"""
+Aşağıdaki benchmark sonuçlarına göre üst yönetime yönelik benchmark intelligence raporu yaz:
+
+Firma: {company_name}
+Sektör: {sector}
+OptiFlow Score: {score}/100
+Risk Seviyesi: {risk_level}
+Finansal Sonuçlar: {financial_result}
+Benchmark Sonuçları: {benchmark_result}
+
+Çıktı formatı:
+1. Sektör Pozisyonu
+2. Kritik Ayrışmalar
+3. Finansal Öncelik
+4. Operasyonel Öncelik
+5. Yönetim Kararı
+"""
+        with st.spinner("AI Benchmark Intelligence hazırlanıyor..."):
+            answer = ask_real_ai_copilot(
+                question=question,
+                company_name=company_name,
+                sector=sector,
+                score=score,
+                maturity={"Seviye": "-", "Yorum": "-"},
+                company_metrics=company_metrics,
+                financial_result=financial_result,
+                recommendations=[],
+                risk_score=0,
+                risk_level=risk_level
+            )
+
+        st.markdown(
+            f"""
+            <div style="padding:22px;border-radius:18px;background:#f8fafc;border-left:6px solid #0f172a;">
+            {answer.replace(chr(10), '<br>')}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+
+def generate_consulting_proposal_text(
+    company_name,
+    sector,
+    score,
+    maturity,
+    company_metrics,
+    financial_result,
+    recommendations,
+    risk_level
+):
+    yearly_saving = financial_result.get("Tahmini Yıllık Tasarruf", 0)
+    roi = financial_result.get("ROI (%)", 0)
+    payback = financial_result.get("Geri Dönüş Süresi (Ay)", 0)
+
+    proposal = f"""
+# OptiFlow Consulting Proposal
+
+## 1. Teklif Özeti
+
+{company_name} için gerçekleştirilen ön değerlendirme, işletmenin operasyonel performansında ölçülebilir iyileştirme potansiyeli bulunduğunu göstermektedir. OptiFlow Score {score}/100, operasyonel olgunluk seviyesi {maturity.get("Seviye", "-")} ve risk seviyesi {risk_level} olarak değerlendirilmiştir.
+
+Bu teklifin amacı; bekleme süreleri, hat dengeleme kayıpları, OEE performansı, kalite kayıpları ve KPI yönetim sistemini iyileştirerek finansal ve operasyonel değer yaratmaktır.
+
+## 2. Mevcut Durum Bulguları
+
+- Bekleme Oranı: %{company_metrics.get("wait_rate", 0)}
+- OEE: %{company_metrics.get("oee", 0)}
+- Hata Oranı: %{company_metrics.get("defect_rate", 0)}
+- Hat Denge Kaybı: %{company_metrics.get("line_balance_loss", 0)}
+- Tahmini Yıllık Tasarruf Potansiyeli: {money_fmt(yearly_saving)}
+- ROI: {pct_fmt(roi)}
+- Geri Dönüş Süresi: {payback} ay
+
+## 3. Proje Kapsamı
+
+OptiFlow danışmanlık projesi aşağıdaki iş paketlerini kapsar:
+
+### İş Paketi 1 - Veri Doğrulama ve Operasyonel Teşhis
+Süreç gözlemi, KPI baz çizgisinin doğrulanması, darboğaz noktalarının tespiti ve veri güvenilirliğinin değerlendirilmesi.
+
+### İş Paketi 2 - Akış ve Hat Dengeleme İyileştirmesi
+Bekleme sürelerinin azaltılması, iş yükü dağılımının dengelenmesi, standart iş uygulamalarının tasarlanması.
+
+### İş Paketi 3 - OEE ve Performans Yönetim Sistemi
+OEE bileşen takibi, duruş neden analizi, günlük KPI panosu ve haftalık yönetim ritminin kurulması.
+
+### İş Paketi 4 - Finansal Etki ve ROI Takibi
+Operasyonel kayıpların parasal etkisinin izlenmesi, iyileştirme aksiyonlarının finansal karşılığının raporlanması.
+
+## 4. 30-60-90 Gün Proje Planı
+
+### 0-30 Gün
+Veri doğrulama, süreç gözlemi, darboğaz analizi, KPI baz çizgisi ve hızlı kazanım alanlarının belirlenmesi.
+
+### 30-60 Gün
+Hat dengeleme, bekleme azaltma, standart iş tasarımı, OEE takip altyapısı ve pilot uygulamalar.
+
+### 60-90 Gün
+KPI toplantı ritmi, sorumluluk matrisi, performans panosu, sürdürülebilir yönetim sistemi ve sonuç raporu.
+
+## 5. Beklenen Çıktılar
+
+- Ölçülebilir KPI iyileşmesi
+- Bekleme ve akış kayıplarında azalma
+- Daha dengeli kapasite kullanımı
+- Kalite ve yeniden işleme kayıplarında görünürlük
+- Yönetim için veri temelli karar destek sistemi
+- PDF, PPT ve Excel formatında yönetim raporları
+
+## 6. Öncelikli Aksiyonlar
+
+{chr(10).join([f"- {rec}" for rec in recommendations])}
+
+## 7. Ticari Yaklaşım
+
+Önerilen proje yaklaşımı üç fazlıdır:
+
+- Faz 1: Operasyonel Teşhis ve Veri Doğrulama
+- Faz 2: İyileştirme Tasarımı ve Pilot Uygulama
+- Faz 3: Sürdürülebilir Yönetim Sistemi ve Raporlama
+
+## 8. Yönetim Kararı Önerisi
+
+{company_name} için önerilen ilk adım, 30 günlük operasyonel teşhis ve hızlı kazanım çalışmasının başlatılmasıdır. Bu çalışma sonrasında daha kapsamlı 90 günlük dönüşüm programı netleştirilebilir.
+"""
+    return proposal
+
+
+def create_proposal_docx(company_name, proposal_text):
+    from docx import Document
+    from docx.shared import Pt
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    safe_company = str(company_name).replace(" ", "_").replace("/", "_")
+    file_name = os.path.join(EXPORT_DIR, f"OptiFlow_{safe_company}_Consulting_Proposal.docx")
+
+    doc = Document()
+    title = doc.add_heading("OptiFlow Consulting Proposal", level=0)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    for line in str(proposal_text).split("\n"):
+        clean = line.strip()
+        if not clean:
+            doc.add_paragraph("")
+            continue
+
+        if clean.startswith("# "):
+            doc.add_heading(clean.replace("# ", ""), level=1)
+        elif clean.startswith("## "):
+            doc.add_heading(clean.replace("## ", ""), level=2)
+        elif clean.startswith("### "):
+            doc.add_heading(clean.replace("### ", ""), level=3)
+        else:
+            p = doc.add_paragraph(clean)
+            for run in p.runs:
+                run.font.size = Pt(10.5)
+
+    doc.save(file_name)
+    return file_name
+
+
+def render_proposal_generator(
+    company_name,
+    sector,
+    score,
+    maturity,
+    company_metrics,
+    financial_result,
+    recommendations,
+    risk_level,
+    active_plan,
+    active_rules
+):
+    st.markdown("## V19 Proposal Generator")
+    st.caption("OptiFlow analizinden otomatik danışmanlık teklif dokümanı üretir.")
+
+    if not active_rules.get("ai", False):
+        render_locked_feature("Proposal Generator", active_plan)
+        return
+
+    st.markdown("### Teklif Parametreleri")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        proposal_type = st.selectbox("Teklif Tipi", ["Operational Excellence", "Lean Transformation", "OEE Improvement", "KPI Management System"])
+    with col2:
+        project_duration = st.selectbox("Proje Süresi", ["30 Gün", "60 Gün", "90 Gün", "6 Ay"])
+    with col3:
+        commercial_model = st.selectbox("Ticari Model", ["Sabit Proje Bedeli", "Aylık Danışmanlık", "Başarı Bazlı", "Hibrit Model"])
+
+    if "v19_proposal_text" not in st.session_state:
+        st.session_state.v19_proposal_text = ""
+
+    if st.button("Danışmanlık Teklifi Oluştur", type="primary"):
+        with st.spinner("OptiFlow danışmanlık teklifi hazırlanıyor..."):
+            base_proposal = generate_consulting_proposal_text(
+                company_name=company_name,
+                sector=sector,
+                score=score,
+                maturity=maturity,
+                company_metrics=company_metrics,
+                financial_result=financial_result,
+                recommendations=recommendations,
+                risk_level=risk_level
+            )
+
+            ai_question = f"""
+Aşağıdaki danışmanlık teklif taslağını daha profesyonel, satışa uygun ve yönetim danışmanlığı diliyle geliştir.
+
+Teklif tipi: {proposal_type}
+Proje süresi: {project_duration}
+Ticari model: {commercial_model}
+
+Taslak:
+{base_proposal}
+
+Çıktı Türkçe olsun.
+Başlıklar korunmalı.
+Danışmanlık şirketi müşteriye gönderecekmiş gibi yaz.
+"""
+            enhanced = ask_real_ai_copilot(
+                question=ai_question,
+                company_name=company_name,
+                sector=sector,
+                score=score,
+                maturity=maturity,
+                company_metrics=company_metrics,
+                financial_result=financial_result,
+                recommendations=recommendations,
+                risk_score=0,
+                risk_level=risk_level
+            )
+
+            st.session_state.v19_proposal_text = enhanced
+
+    if st.session_state.v19_proposal_text:
+        st.markdown("### Proposal Output")
+        st.markdown(
+            f"""
+            <div style="padding:24px;border-radius:18px;background:#f8fafc;border-left:6px solid #2563eb;">
+            {st.session_state.v19_proposal_text.replace(chr(10), '<br>')}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        proposal_docx = create_proposal_docx(company_name, st.session_state.v19_proposal_text)
+
+        with open(proposal_docx, "rb") as file:
+            st.download_button(
+                "Consulting Proposal DOCX İndir",
+                data=file,
+                file_name=os.path.basename(proposal_docx),
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+
+        st.markdown("### Teklifi Mail Gönder")
+        proposal_to = st.text_input("Alıcı e-posta", value=user_email or "", key="proposal_mail_to")
+
+        if st.button("Proposal Mail Gönder"):
+            ok, msg = send_email_with_attachments(
+                to_email=proposal_to,
+                subject=f"OptiFlow Consulting Proposal - {company_name}",
+                body=f"""Merhaba,
+
+{company_name} için hazırlanan OptiFlow danışmanlık teklif dokümanı ekte yer almaktadır.
+
+Saygılarımızla,
+OptiFlow Enterprise""",
+                attachment_paths=[proposal_docx]
+            )
+
+            save_email_log(
+                user_email=user_email,
+                to_email=proposal_to,
+                subject=f"OptiFlow Consulting Proposal - {company_name}",
+                status="success" if ok else "failed",
+                message=msg,
+                company_name=company_name
+            )
+
+            if ok:
+                st.success("Teklif e-posta ile gönderildi.")
+            else:
+                st.error(msg)
 
 
 # ============================================================
@@ -2709,7 +3231,7 @@ if page == "Landing Page":
     st.markdown(
         """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V16</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V19</div>
     <div class="hero-subtitle">
         Operational Excellence Intelligence Platform with Plotly Executive Dashboards, KPI Diagnostics and Enterprise Reporting.
     </div>
@@ -2738,7 +3260,7 @@ if page == "Landing Page":
 st.markdown(
     """
 <div class="hero">
-    <div class="hero-title">OptiFlow Enterprise SaaS V16</div>
+    <div class="hero-title">OptiFlow Enterprise SaaS V19</div>
     <div class="hero-subtitle">
         Commercial Operations Excellence Platform | Plotly Dashboard | Benchmark Intelligence | PDF & PPT Export
     </div>
@@ -3262,3 +3784,34 @@ elif page == "Report Delivery":
 
 elif page == "Email Logs":
     render_admin_email_logs(user_email)
+
+
+elif page == "Client Portal":
+    render_client_portal(user_email)
+
+
+elif page == "Benchmark Intelligence":
+    render_benchmark_intelligence(
+        company_name=company_name,
+        sector=sector,
+        score=score,
+        company_metrics=company_metrics,
+        benchmark_result=benchmark_result,
+        financial_result=financial_result,
+        risk_level=risk_level
+    )
+
+
+elif page == "Proposal Generator":
+    render_proposal_generator(
+        company_name=company_name,
+        sector=sector,
+        score=score,
+        maturity=maturity,
+        company_metrics=company_metrics,
+        financial_result=financial_result,
+        recommendations=recommendations,
+        risk_level=risk_level,
+        active_plan=active_plan,
+        active_rules=active_rules
+    )
