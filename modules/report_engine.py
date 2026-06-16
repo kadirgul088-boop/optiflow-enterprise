@@ -54,6 +54,79 @@ AMBER_BG = colors.HexColor("#fffbeb")
 BLUE_BG = colors.HexColor("#eff6ff")
 
 
+
+def _clean_text(value):
+    """
+    ReportLab bazı emoji, ikon ve özel sembolleri PDF'te siyah kutu olarak gösterebilir.
+    Bu fonksiyon Türkçe karakterleri korur; emoji/ikonları ve riskli XML karakterlerini temizler.
+    """
+    import unicodedata
+    from xml.sax.saxutils import escape
+
+    if value is None:
+        return ""
+
+    text = str(value)
+
+    replacements = {
+        "🔴": "KRITIK",
+        "🟡": "DIKKAT",
+        "🟢": "IYI",
+        "✅": "",
+        "❌": "",
+        "⚠️": "DIKKAT:",
+        "⚠": "DIKKAT:",
+        "📊": "",
+        "📈": "",
+        "📉": "",
+        "🚀": "",
+        "💰": "",
+        "🎯": "",
+        "🧠": "",
+        "📄": "",
+        "📌": "",
+        "•": "-",
+        "–": "-",
+        "—": "-",
+        "“": '"',
+        "”": '"',
+        "’": "'",
+        "‘": "'",
+        "©": "(c)",
+        "®": "(R)",
+        "™": "(TM)",
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    cleaned = []
+    for ch in text:
+        cat = unicodedata.category(ch)
+
+        # Turkish letters are normal letters and are preserved.
+        # Remove emoji/symbol categories that often render as black boxes in PDF.
+        if cat in {"So", "Cs", "Co", "Cn"}:
+            continue
+
+        cleaned.append(ch)
+
+    text = "".join(cleaned)
+    text = escape(text)
+    text = text.replace("\n", "<br/>")
+
+    return text
+
+
+def _clean_table_data(data):
+    return [[_clean_text(cell) for cell in row] for row in data]
+
+
+def _P(text, style):
+    return Paragraph(_clean_text(text), style)
+
+
+
 def _safe_get(data, key, default=0):
     try:
         value = data.get(key, default)
@@ -136,14 +209,14 @@ def _table_style(header_color=PRIMARY, body_color=LIGHT_BG):
 
 
 def _styled_table(data, header_color=PRIMARY, body_color=LIGHT_BG, col_widths=None):
-    table = Table(data, colWidths=col_widths, repeatRows=1)
+    table = Table(_clean_table_data(data), colWidths=col_widths, repeatRows=1)
     table.setStyle(_table_style(header_color=header_color, body_color=body_color))
     return table
 
 
 def _section_title(story, title_text, h1):
     story.append(Spacer(1, 4))
-    story.append(Paragraph(title_text, h1))
+    story.append(_P(title_text, h1))
     story.append(Spacer(1, 3))
 
 
@@ -306,12 +379,12 @@ def create_enterprise_pdf(
         story.append(logo)
         story.append(Spacer(1, 22))
     else:
-        story.append(Paragraph("OPTIFLOW", title))
+        story.append(_P("OPTIFLOW", title))
         story.append(Spacer(1, 16))
 
-    story.append(Paragraph("ENTERPRISE OPERATIONAL EXCELLENCE REPORT", title))
+    story.append(_P("ENTERPRISE OPERATIONAL EXCELLENCE REPORT", title))
     story.append(Spacer(1, 10))
-    story.append(Paragraph(
+    story.append(_P(
         "Executive Consulting Assessment | Financial Impact | Risk & Transformation Roadmap",
         subtitle
     ))
@@ -328,17 +401,17 @@ def create_enterprise_pdf(
 
     story.append(cover_table)
     story.append(Spacer(1, 26))
-    story.append(Paragraph(
+    story.append(_P(
         "This report provides an executive-level assessment of operational performance, process efficiency, financial impact, risk exposure and management priorities. It is designed to support data-driven decisions and identify measurable improvement opportunities.",
         cover_note
     ))
     story.append(Spacer(1, 14))
-    story.append(Paragraph(
+    story.append(_P(
         "Prepared exclusively for executive management use.",
         small
     ))
     story.append(Spacer(1, 110))
-    story.append(Paragraph(
+    story.append(_P(
         "Operational Excellence • Lean Transformation • KPI Management • Process Optimization",
         small
     ))
@@ -363,7 +436,7 @@ def create_enterprise_pdf(
     ]
 
     for item in contents:
-        story.append(Paragraph(item, normal))
+        story.append(_P(item, normal))
         story.append(Spacer(1, 3))
 
     story.append(PageBreak())
@@ -387,15 +460,15 @@ def create_enterprise_pdf(
     story.append(summary_table)
     story.append(Spacer(1, 12))
 
-    story.append(Paragraph(
+    story.append(_P(
         f"{company_name} için gerçekleştirilen OptiFlow değerlendirmesi, firmanın operasyonel performansında ölçülebilir iyileştirme potansiyeli bulunduğunu göstermektedir. Bekleme oranı {_fmt_pct(wait_rate)}, OEE seviyesi {_fmt_pct(oee)}, hata oranı {_fmt_pct(defect_rate)} ve hat denge kaybı {_fmt_pct(line_balance_loss)} olarak değerlendirilmiştir.",
         normal
     ))
-    story.append(Paragraph(
+    story.append(_P(
         f"Finansal analiz sonuçlarına göre tahmini yıllık tasarruf potansiyeli {_fmt_money(yearly_saving)} seviyesindedir. Bu nedenle önerilen iyileştirme aksiyonları yalnızca operasyonel verimlilik açısından değil, yatırım geri dönüşü açısından da yönetim için güçlü bir karar alanı oluşturmaktadır.",
         normal
     ))
-    story.append(Paragraph(
+    story.append(_P(
         "Yönetim açısından ilk öncelik; bekleme sürelerinin azaltılması, hat dengeleme çalışmalarının başlatılması, OEE takibinin sistematik hale getirilmesi ve KPI yönetim ritminin kurulmasıdır.",
         normal
     ))
@@ -425,7 +498,7 @@ def create_enterprise_pdf(
         ["ROI", _fmt_pct(roi), _status_roi(roi)]
     ], header_color=PRIMARY, body_color=LIGHT_BG, col_widths=[5 * cm, 4 * cm, 7 * cm])
 
-    story.append(Paragraph("Executive KPI Summary", h2))
+    story.append(_P("Executive KPI Summary", h2))
     story.append(kpi_cards)
     story.append(Spacer(1, 10))
 
@@ -447,7 +520,7 @@ def create_enterprise_pdf(
         col_widths=[4.8 * cm, 4.2 * cm, 7 * cm]
     ))
     story.append(Spacer(1, 10))
-    story.append(Paragraph(
+    story.append(_P(
         "Dashboard göstergeleri, yönetimin ilk bakışta operasyonun nerede değer kaybettiğini ve hangi iyileştirmelerin finansal dönüş sağlayabileceğini görmesini sağlar. Burada öne çıkan ana bulgu, bekleme ve akış kaynaklı kayıpların hem üretkenliği hem de finansal sonuçları sınırlamasıdır.",
         normal
     ))
@@ -467,11 +540,11 @@ def create_enterprise_pdf(
 
     story.append(score_table)
     story.append(Spacer(1, 10))
-    story.append(Paragraph(
+    story.append(_P(
         "OptiFlow Score; verimlilik, kalite, kapasite, akış ve ekipman etkinliği boyutlarını birlikte değerlendirir. Skorun amacı, yalnızca mevcut performansı ölçmek değil; hangi alanların yönetim önceliği olması gerektiğini de ortaya koymaktır.",
         normal
     ))
-    story.append(Paragraph(
+    story.append(_P(
         "Skorun 70 puanın altında kalması durumunda iyileştirme programının yalnızca operasyonel ekipler tarafından değil, üst yönetim sponsorluğunda yürütülmesi önerilir. Çünkü bekleme, dengeleme ve kalite problemleri doğrudan maliyet, teslimat ve müşteri memnuniyeti etkisi yaratır.",
         normal
     ))
@@ -489,7 +562,7 @@ def create_enterprise_pdf(
 
     story.append(perf_table)
     story.append(Spacer(1, 8))
-    story.append(Paragraph(
+    story.append(_P(
         "Operasyonel performans analizinde en kritik bakış açısı, metriklerin ayrı ayrı değil birbirleriyle etkileşimli değerlendirilmesidir. Bekleme oranı yüksekken hat denge kaybının da yüksek olması, sistemin yalnızca belirli istasyonlarda değil tüm akışta verimlilik kaybettiğini gösterir.",
         normal
     ))
@@ -523,7 +596,7 @@ def create_enterprise_pdf(
     story.append(Spacer(1, 8))
     story.append(Image(benchmark_chart, width=15.5 * cm, height=8.2 * cm))
     story.append(Spacer(1, 8))
-    story.append(Paragraph(
+    story.append(_P(
         "Benchmark karşılaştırması, firmanın performansını kendi iç verileriyle sınırlı bırakmaz; sektör referanslarına göre konumlandırır. Sektör ortalamasından olumsuz ayrışan metrikler, yönetim için doğrudan yatırım ve iyileştirme önceliği anlamına gelir.",
         normal
     ))
@@ -544,7 +617,7 @@ def create_enterprise_pdf(
     story.append(_styled_table(fin_rows, header_color=GREEN, body_color=GREEN_BG, col_widths=[8 * cm, 8 * cm]))
     story.append(Spacer(1, 8))
     story.append(Image(financial_chart, width=15.5 * cm, height=8 * cm))
-    story.append(Paragraph(
+    story.append(_P(
         "Finansal etki analizi, operasyonel problemlerin parasal karşılığını görünür hale getirir. Bu sayede iyileştirme projeleri yalnızca verimlilik çalışması olarak değil, yatırım geri dönüşü olan yönetim projeleri olarak değerlendirilebilir.",
         normal
     ))
@@ -563,11 +636,11 @@ def create_enterprise_pdf(
 
     story.append(roi_table)
     story.append(Spacer(1, 8))
-    story.append(Paragraph(
+    story.append(_P(
         f"Mevcut analiz, {_fmt_money(yearly_saving)} seviyesindeki yıllık iyileştirme potansiyelinin işletme lehine doğrudan finansal değer yaratabileceğini göstermektedir. Bu kazanım yalnızca maliyet düşüşü değil, aynı zamanda ek kapasite, daha iyi teslimat performansı ve daha düşük operasyonel dalgalanma anlamına gelir.",
         normal
     ))
-    story.append(Paragraph(
+    story.append(_P(
         "Yönetim açısından önerilen yaklaşım, yüksek yatırım gerektiren kapasite artışı kararlarından önce düşük maliyetli süreç dengeleme, bekleme azaltma ve KPI izleme projelerinin başlatılmasıdır.",
         normal
     ))
@@ -586,7 +659,7 @@ def create_enterprise_pdf(
     story.append(risk_table)
     story.append(Spacer(1, 8))
     story.append(Image(risk_chart, width=13.5 * cm, height=8.5 * cm))
-    story.append(Paragraph(
+    story.append(_P(
         "Risk matrisi, operasyonel problemlerin finansal, kalite ve teslimat performansına olan etkisini birlikte değerlendirir. Risk seviyesi yükseldikçe iyileştirme projesinin üst yönetim sponsorluğu ile yürütülmesi önem kazanır.",
         normal
     ))
@@ -606,7 +679,7 @@ def create_enterprise_pdf(
 
     story.append(root_table)
     story.append(Spacer(1, 8))
-    story.append(Paragraph(
+    story.append(_P(
         "5M analizi, görünen performans problemlerinin arkasındaki sistematik nedenleri ortaya koymak için kullanılır. Bu değerlendirme, yalnızca semptomları değil, tekrar eden kayıp kaynaklarını yönetmeyi hedefler.",
         normal
     ))
@@ -626,11 +699,11 @@ def create_enterprise_pdf(
 
     story.append(decision_final)
     story.append(Spacer(1, 14))
-    story.append(Paragraph(
+    story.append(_P(
         "OptiFlow değerlendirmesine göre işletmenin kısa vadede en yüksek kazanımı, mevcut kaynakları daha etkin kullanarak bekleme ve akış kayıplarını azaltmasıyla elde etmesi beklenmektedir. Bu yaklaşım, yüksek maliyetli yatırım kararlarından önce operasyonel disiplinin güçlendirilmesini sağlar.",
         normal
     ))
-    story.append(Paragraph(
+    story.append(_P(
         "Yönetimin önerilen aksiyonları sistematik biçimde uygulaması durumunda, operasyonel performansta ölçülebilir iyileşme, maliyetlerde düşüş, kapasite kullanımında artış ve daha sürdürülebilir bir performans yönetim yapısı elde edilmesi beklenmektedir.",
         normal
     ))
@@ -647,7 +720,7 @@ def create_enterprise_pdf(
 
     story.append(roadmap)
     story.append(Spacer(1, 8))
-    story.append(Paragraph(
+    story.append(_P(
         "Yol haritası, iyileştirme çalışmalarını kısa vadeli hızlı kazanımlar ve orta vadeli sürdürülebilir sistem tasarımı olarak iki eksende ele alır. İlk 30 gün veri doğruluğu ve önceliklendirme, sonraki 60 gün ise uygulama ve kalıcı yönetim ritmi için kritik dönemdir.",
         normal
     ))
@@ -660,24 +733,24 @@ def create_enterprise_pdf(
 
     for paragraph in paragraphs:
         if len(paragraph) < 90 and any(char.isdigit() for char in paragraph[:3]):
-            story.append(Paragraph(paragraph, h2))
+            story.append(_P(paragraph, h2))
         else:
-            story.append(Paragraph(paragraph, normal))
+            story.append(_P(paragraph, normal))
 
     story.append(PageBreak())
 
     # 13 CONCLUSION
     _section_title(story, "13. Sonuç ve Yönetim Tavsiyesi", h1)
 
-    story.append(Paragraph(
+    story.append(_P(
         f"OptiFlow değerlendirmesi, {company_name} için en önemli iyileştirme alanlarının bekleme süreleri, hat dengeleme, kalite kayıpları ve performans izleme sistemi olduğunu göstermektedir. Mevcut göstergeler, operasyonel kayıpların yönetim gündemine alınması durumunda ölçülebilir finansal kazanım üretilebileceğini ortaya koymaktadır.",
         normal
     ))
-    story.append(Paragraph(
+    story.append(_P(
         f"Yıllık {_fmt_money(yearly_saving)} seviyesindeki tasarruf potansiyeli, iyileştirme programının yalnızca operasyonel değil, finansal olarak da anlamlı olduğunu göstermektedir. Öncelikli öneri, ilk 90 gün içinde veri doğrulama, darboğaz yönetimi, hat dengeleme ve KPI takip sisteminin birlikte devreye alınmasıdır.",
         normal
     ))
-    story.append(Paragraph(
+    story.append(_P(
         "Bu rapor, yönetimin hangi aksiyonları önce başlatması gerektiğini, hangi riskleri önceliklendirmesi gerektiğini ve hangi finansal sonuçların hedeflenebileceğini göstermek üzere hazırlanmıştır. Uygulama başarısı için üst yönetim sahipliği, düzenli takip ritmi ve ölçülebilir KPI sistemi kritik önemdedir.",
         normal
     ))
